@@ -387,7 +387,7 @@ while global_step < args.total_timesteps:
             writer.add_scalar("train/v_loss", vf_loss.item(), global_step)
             writer.add_scalar("train/policy_loss", policy_loss.item(), global_step)
             writer.add_scalar("train/entropy", entropy_batch.mean().item(), global_step)
-            writer.add_scalar("train/alpha_entropy_coef", alpha, global_step)
+            writer.add_scalar("train/alpha_entropy_coef", args.alpha, global_step)
 
             if global_step > 0 and global_step % 100 == 0:
                 print( "Step %d: Poloss: %.6f -- Q1Loss: %.6f -- Q2Loss: %.6f -- VLoss: %.6f"

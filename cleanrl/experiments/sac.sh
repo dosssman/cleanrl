@@ -69,7 +69,7 @@ do
     # ) >& /dev/null &
 
     # SAC with V Target
-    (sleep 0.3 && nohup python sac_online_vtarg.py \
+    (sleep 0.3 && nohup python sac_continuous_vtarg.py \
     --seed $seed \
     --gym-id HopperBulletEnv-v0 \
     --total-timesteps 1000000 \
