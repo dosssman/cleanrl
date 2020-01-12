@@ -57,10 +57,14 @@ if __name__ == "__main__":
                         help="the batch size of sample from the reply memory")
     parser.add_argument('--tau', type=float, default=0.005,
                         help="target smoothing coefficient (default: 0.005)")
-    parser.add_argument('--noise-std', type=float, default=0.1,
-                        help="standard deviation of the Normal dist for action noise sampling")
     parser.add_argument('--start-steps', type=int, default=int(1e4),
                         help='initial random exploration step count')
+
+    # TODO: Add Parameter Noising support ~ https://arxiv.org/abs/1706.01905
+    parser.add_argument('--noise-type', type=str, choices=["ou", "naive"], default="ou",
+                        help='type of noise to be used when sampling exploratiry actions')
+    parser.add_argument('--noise-std', type=float, default=0.1,
+                        help="standard deviation of the Normal dist for action noise sampling")
 
     # Neural Network Parametrization
     parser.add_argument('--hidden-sizes', nargs='+', type=int, default=[256,128,80])
@@ -88,6 +92,31 @@ assert isinstance(env.action_space, Box), "only continuous action space is suppo
 EPS = 1e-8
 LOG_STD_MAX = 2
 LOG_STD_MIN = -20
+
+# MODIFIED: Added noise function for exploration
+# Based on http://math.stackexchange.com/questions/1287634/implementing-ornstein-uhlenbeck-in-matlab
+# TODO: More elegant way ?
+if args.noise_type == "ou":
+    class OrnsteinUhlenbeckActionNoise():
+        def __init__(self, mu, sigma, theta=.15, dt=1e-2, x0=None):
+            self.theta = theta
+            self.mu = mu
+            self.sigma = sigma
+            self.dt = dt
+            self.x0 = x0
+            self.reset()
+
+        def __call__(self):
+            x = self.x_prev + self.theta * (self.mu - self.x_prev) * self.dt + self.sigma * np.sqrt(self.dt) * np.random.normal(size=self.mu.shape)
+            self.x_prev = x
+            return x
+
+        def reset(self):
+            self.x_prev = self.x0 if self.x0 is not None else np.zeros_like(self.mu)
+
+        def __repr__(self):
+            return 'OrnsteinUhlenbeckActionNoise(mu={}, sigma={})'.format(self.mu, self.sigma)
+    ou_act_noise = OrnsteinUhlenbeckActionNoise( mu=np.zeros(output_shape), sigma=float(args.noise_std) * np.ones(output_shape))
 
 # Determinsitic policy
 class Policy(nn.Module):
@@ -152,7 +181,6 @@ buffer.set_seed(args.seed)
 pg = Policy().to(device)
 pg_target = Policy().to(device)
 
-# Defining the agent's policy: Gaussian
 qf = QValue().to(device)
 qf_target = QValue().to(device)
 
@@ -237,8 +265,16 @@ while global_step < args.total_timesteps:
             # TODO: Noising process ?
             if global_step > args.start_steps:
                 action = pg.forward([obs]).tolist()[0]
-                action += args.noise_std * np.random.randn(output_shape) # From OpenAI SpinUp
+                if args.noise_type == "ou":
+                    # Ourstein Uhlenbeck noise from baseline
+                    action += ou_act_noise()
+                elif args.noise_type == "naive":
+                    action += args.noise_std * np.random.randn(output_shape) # From OpenAI SpinUp
+                else:
+                    raise NotImplementedError
+
                 action = np.clip( action, -act_limit, act_limit)
+
             else:
                 action = env.action_space.sample()
 
@@ -312,6 +348,11 @@ while global_step < args.total_timesteps:
             train_episode_length = 0
 
             global_episode += 1
+
+            # Need to reset OrnsteinUhlenbeckActionNoise after each episode apparently
+            if args.noise_type == "ou":
+                ou_act_noise.reset()
+
             break;
 
 
