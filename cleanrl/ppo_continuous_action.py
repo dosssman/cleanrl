@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
-from torch.distributions.categorical import Categorical
+from torch.distributions.normal import Normal
 from torch.utils.tensorboard import SummaryWriter
 
 from cleanrl.common import preprocess_obs_space, preprocess_ac_space
@@ -10,6 +10,7 @@ import argparse
 import numpy as np
 import gym
 from gym.wrappers import TimeLimit, Monitor
+import pybullet_envs
 from gym.spaces import Discrete, Box, MultiBinary, MultiDiscrete, Space
 import time
 import random
@@ -20,7 +21,7 @@ if __name__ == "__main__":
     # Common arguments
     parser.add_argument('--exp-name', type=str, default=os.path.basename(__file__).rstrip(".py"),
                        help='the name of this experiment')
-    parser.add_argument('--gym-id', type=str, default="CartPole-v0",
+    parser.add_argument('--gym-id', type=str, default="HopperBulletEnv-v0",
                        help='the id of the gym environment')
     parser.add_argument('--learning-rate', type=float, default=7e-4,
                        help='the learning rate of the optimizer')
@@ -72,7 +73,7 @@ if args.prod_mode:
     wandb.save(os.path.abspath(__file__))
 
 # TRY NOT TO MODIFY: seeding
-device = torch.device('cuda' if torch.cuda.is_available() and args.cuda else 'cpu')
+device = torch.device('cpu')
 env = gym.make(args.gym_id)
 random.seed(args.seed)
 np.random.seed(args.seed)
@@ -95,41 +96,35 @@ if args.capture_video:
     env = Monitor(env, f'videos/{experiment_name}')
 
 # ALGO LOGIC: initialize agent here:
+
 class Policy(nn.Module):
     def __init__(self):
         super(Policy, self).__init__()
         self.fc1 = nn.Linear(input_shape, 120)
         self.fc2 = nn.Linear(120, 84)
-        self.fc3 = nn.Linear(84, output_shape)
+        self.mean = nn.Linear(84, output_shape)
+        self.logstd = nn.Parameter(torch.zeros(1, output_shape))
 
     def forward(self, x):
         x = preprocess_obs_fn(x)
-        x = F.relu(self.fc1(x))
-        x = F.relu(self.fc2(x))
-        x = self.fc3(x)
-        return x
+        x = torch.tanh(self.fc1(x))
+        x = torch.tanh(self.fc2(x))
+        action_mean = self.mean(x)
+        action_logstd = self.logstd.expand_as(action_mean)
+        return action_mean, action_logstd
 
     def get_action(self, x):
-        logits = pg.forward(x)
-        # ALGO LOGIC: `env.action_space` specific logic
-        if isinstance(env.action_space, Discrete):
-            probs = Categorical(logits=logits)
-            action = probs.sample()
-            return action, -probs.log_prob(action), probs.entropy()
-        elif isinstance(env.action_space, MultiDiscrete):
-            logits_categories = torch.split(logits, env.action_space.nvec.tolist(), dim=1)
-            action = []
-            probs_categories = []
-            entropy = torch.zeros((logits.shape[0]))
-            neglogprob = torch.zeros((logits.shape[0]))
-            for i in range(len(logits_categories)):
-                probs_categories.append(Categorical(logits=logits_categories[i]))
-                if len(action) != env.action_space.shape:
-                    action.append(probs_categories[i].sample())
-                neglogprob -= probs_categories[i].log_prob(action[i])
-                entropy += probs_categories[i].entropy()
-            action = torch.stack(action).transpose(0, 1)
-            return action, neglogprob, entropy
+        mean, logstd = self.forward(x)
+        std = torch.exp(logstd)
+        probs = Normal(mean, std)
+        action = probs.sample()
+        return action, probs.log_prob(action).sum(1)
+
+    def get_logproba(self, x, actions):
+        action_mean, action_logstd = self.forward(x)
+        action_std = torch.exp(action_logstd)
+        dist = Normal(action_mean, action_std)
+        return dist.log_prob(actions).sum(1)
 
 class Value(nn.Module):
     def __init__(self):
@@ -139,7 +134,7 @@ class Value(nn.Module):
 
     def forward(self, x):
         x = preprocess_obs_fn(x)
-        x = F.relu(self.fc1(x))
+        x = F.tanh(self.fc1(x))
         x = self.fc2(x)
         return x
 
@@ -147,32 +142,38 @@ pg = Policy().to(device)
 vf = Value().to(device)
 optimizer = optim.Adam(list(pg.parameters()) + list(vf.parameters()), lr=args.learning_rate)
 loss_fn = nn.MSELoss()
+#print(pg.logstd.bias)
 
 # TRY NOT TO MODIFY: start the game
 global_step = 0
 while global_step < args.total_timesteps:
     next_obs = np.array(env.reset())
-    actions = np.empty((args.episode_length,), dtype=object)
+    actions = np.empty((args.episode_length,) + env.action_space.shape)
     rewards, dones = np.zeros((2, args.episode_length))
     obs = np.empty((args.episode_length,) + env.observation_space.shape)
 
     # ALGO LOGIC: put other storage logic here
     values = torch.zeros((args.episode_length), device=device)
-    neglogprobs = torch.zeros((args.episode_length,), device=device)
+    logprobs = np.zeros((args.episode_length,),)
     entropys = torch.zeros((args.episode_length,), device=device)
 
     # TRY NOT TO MODIFY: prepare the execution of the game.
     for step in range(args.episode_length):
         global_step += 1
         obs[step] = next_obs.copy()
-
+        
         # ALGO LOGIC: put action logic here
         values[step] = vf.forward(obs[step:step+1])
-        action, neglogprob, entropy = pg.get_action(obs[step:step+1])
-        actions[step], neglogprobs[step], entropys[step] = action.tolist()[0], neglogprob, entropy
+        action, logproba = pg.get_action(obs[step:step+1])
+        actions[step] = action.data.numpy()[0]
+        logprobs[step] = logproba.data.numpy()[0]
+        
+        # sometimes causes the performance to stay the same for a really long time.. hmmm
+        # could be a degenarate seed
+        clipped_action = np.clip(action.tolist(), env.action_space.low, env.action_space.high)[0]
 
         # TRY NOT TO MODIFY: execute the game and log data.
-        next_obs, rewards[step], dones[step], _ = env.step(actions[step])
+        next_obs, rewards[step], dones[step], _ = env.step(clipped_action)
         next_obs = np.array(next_obs)
         if dones[step]:
             break
@@ -185,20 +186,18 @@ while global_step < args.total_timesteps:
     # advantages are returns - baseline, value estimates in our case
     advantages = returns - values.detach().cpu().numpy()
 
-    neglogprobs = neglogprobs.detach()
-    non_empty_idx = np.argmax(dones) + 1
     for _ in range(args.update_epochs):
-        # ALGO LOGIC: `env.action_space` specific logic
-        _, new_neglogprobs, _ = pg.get_action(obs[:non_empty_idx])
-        ratio = torch.exp(neglogprobs[:non_empty_idx] - new_neglogprobs)
-        surrogate1 = ratio * torch.Tensor(advantages)[:non_empty_idx].to(device)
-        surrogate2 = torch.clamp(ratio, 1-args.clip_coef, 1+args.clip_coef) * torch.Tensor(advantages)[:non_empty_idx].to(device)
-        clip = torch.min(surrogate1, surrogate2)
-        vf_loss = loss_fn(torch.Tensor(returns).to(device), values) * args.vf_coef
-        loss = vf_loss - (clip + entropys[:non_empty_idx] * args.ent_coef).mean()
-
+        newlogproba = pg.get_logproba(obs[:step], torch.Tensor(actions[:step]))
+        # newvalues = vf.forward(obs[:step]).flatten() DO we generate a new values from the current policy?
+        ratio =  torch.exp(newlogproba - torch.Tensor(logprobs[:step]))
+        surrogate1 = ratio * torch.Tensor(advantages[:step])
+        surrogate2 = ratio.clamp(1 - args.clip_coef, 1 + args.clip_coef) * torch.Tensor(advantages[:step])
+        policy_loss = - torch.mean(torch.min(surrogate1, surrogate2))
+        vf_loss = torch.mean((values[:step] - torch.Tensor(returns[:step])).pow(2))
+        entropy_loss = torch.mean(torch.exp(newlogproba) * newlogproba)
+        total_loss = policy_loss + args.vf_coef * vf_loss + args.ent_coef * entropy_loss
         optimizer.zero_grad()
-        loss.backward(retain_graph=True)
+        total_loss.backward(retain_graph=True)
         nn.utils.clip_grad_norm_(list(pg.parameters()) + list(vf.parameters()), args.max_grad_norm)
         optimizer.step()
 
@@ -206,5 +205,6 @@ while global_step < args.total_timesteps:
     writer.add_scalar("charts/episode_reward", rewards.sum(), global_step)
     writer.add_scalar("losses/value_loss", vf_loss.item(), global_step)
     writer.add_scalar("losses/entropy", entropys[:step].mean().item(), global_step)
+    writer.add_scalar("losses/policy_loss", policy_loss.item(), global_step)
 env.close()
 writer.close()
