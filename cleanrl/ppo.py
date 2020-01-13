@@ -9,6 +9,7 @@ from cleanrl.common import preprocess_obs_space, preprocess_ac_space
 import argparse
 import numpy as np
 import gym
+from gym.wrappers import TimeLimit, Monitor
 from gym.spaces import Discrete, Box, MultiBinary, MultiDiscrete, Space
 import time
 import random
@@ -17,7 +18,7 @@ import os
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='PPO agent')
     # Common arguments
-    parser.add_argument('--exp-name', type=str, default=os.path.basename(__file__).strip(".py"),
+    parser.add_argument('--exp-name', type=str, default=os.path.basename(__file__).rstrip(".py"),
                        help='the name of this experiment')
     parser.add_argument('--gym-id', type=str, default="CartPole-v0",
                        help='the id of the gym environment')
@@ -25,7 +26,7 @@ if __name__ == "__main__":
                        help='the learning rate of the optimizer')
     parser.add_argument('--seed', type=int, default=1,
                        help='seed of the experiment')
-    parser.add_argument('--episode-length', type=int, default=200,
+    parser.add_argument('--episode-length', type=int, default=0,
                        help='the maximum length of each episode')
     parser.add_argument('--total-timesteps', type=int, default=100000,
                        help='total timesteps of the experiments')
@@ -35,6 +36,8 @@ if __name__ == "__main__":
                        help='whether to use CUDA whenever possible')
     parser.add_argument('--prod-mode', type=bool, default=False,
                        help='run the script in production mode and use wandb to log outputs')
+    parser.add_argument('--capture-video', type=bool, default=False,
+                       help='weather to capture videos of the agent performances (check out `videos` folder)')
     parser.add_argument('--wandb-project-name', type=str, default="cleanRL",
                        help="the wandb's project name")
     parser.add_argument('--wandb-entity', type=str, default=None,
@@ -58,6 +61,17 @@ if __name__ == "__main__":
         args.seed = int(time.time())
 
 # TRY NOT TO MODIFY: setup the environment
+experiment_name = f"{args.gym_id}__{args.exp_name}__{args.seed}__{int(time.time())}"
+writer = SummaryWriter(f"runs/{experiment_name}")
+writer.add_text('hyperparameters', "|param|value|\n|-|-|\n%s" % (
+        '\n'.join([f"|{key}|{value}|" for key, value in vars(args).items()])))
+if args.prod_mode:
+    import wandb
+    wandb.init(project=args.wandb_project_name, entity=args.wandb_entity, tensorboard=True, config=vars(args), name=experiment_name, monitor_gym=True)
+    writer = SummaryWriter(f"/tmp/{experiment_name}")
+    wandb.save(os.path.abspath(__file__))
+
+# TRY NOT TO MODIFY: seeding
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 env = gym.make(args.gym_id)
 random.seed(args.seed)
@@ -69,6 +83,16 @@ env.action_space.seed(args.seed)
 env.observation_space.seed(args.seed)
 input_shape, preprocess_obs_fn = preprocess_obs_space(env.observation_space, device)
 output_shape = preprocess_ac_space(env.action_space)
+# respect the default timelimit
+if int(args.episode_length):
+    if not isinstance(env, TimeLimit):
+        env = TimeLimit(env, int(args.episode_length))
+    else:
+        env._max_episode_steps = int(args.episode_length)
+else:
+    args.episode_length = env._max_episode_steps if isinstance(env, TimeLimit) else 200
+if args.capture_video:
+    env = Monitor(env, f'videos/{experiment_name}')
 
 # ALGO LOGIC: initialize agent here:
 class Policy(nn.Module):
@@ -84,6 +108,27 @@ class Policy(nn.Module):
         x = F.relu(self.fc2(x))
         x = self.fc3(x)
         return x
+
+    def get_action(self, x):
+        logits = pg.forward(x)
+        if isinstance(env.action_space, Discrete):
+            probs = Categorical(logits=logits)
+            action = probs.sample()
+            return action, -probs.log_prob(action), probs.entropy()
+        elif isinstance(env.action_space, MultiDiscrete):
+            logits_categories = torch.split(logits, env.action_space.nvec.tolist(), dim=1)
+            action = []
+            probs_categories = []
+            entropy = torch.zeros((logits.shape[0]))
+            neglogprob = torch.zeros((logits.shape[0]))
+            for i in range(len(logits_categories)):
+                probs_categories.append(Categorical(logits=logits_categories[i]))
+                if len(action) != env.action_space.shape:
+                    action.append(probs_categories[i].sample())
+                neglogprob -= probs_categories[i].log_prob(action[i])
+                entropy += probs_categories[i].entropy()
+            action = torch.stack(action).transpose(0, 1)
+            return action, neglogprob, entropy
 
 class Value(nn.Module):
     def __init__(self):
@@ -103,15 +148,6 @@ optimizer = optim.Adam(list(pg.parameters()) + list(vf.parameters()), lr=args.le
 loss_fn = nn.MSELoss()
 
 # TRY NOT TO MODIFY: start the game
-experiment_name = f"{args.gym_id}__{args.exp_name}__{args.seed}__{int(time.time())}"
-writer = SummaryWriter(f"runs/{experiment_name}")
-writer.add_text('hyperparameters', "|param|value|\n|-|-|\n%s" % (
-        '\n'.join([f"|{key}|{value}|" for key, value in vars(args).items()])))
-if args.prod_mode:
-    import wandb
-    wandb.init(project=args.wandb_project_name, entity=args.wandb_entity, tensorboard=True, config=vars(args), name=experiment_name)
-    writer = SummaryWriter(f"/tmp/{experiment_name}")
-    wandb.save(os.path.abspath(__file__))
 global_step = 0
 while global_step < args.total_timesteps:
     next_obs = np.array(env.reset())
@@ -130,29 +166,11 @@ while global_step < args.total_timesteps:
         obs[step] = next_obs.copy()
 
         # ALGO LOGIC: put action logic here
-        logits = pg.forward(obs[step:step+1])
         values[step] = vf.forward(obs[step:step+1])
 
         # ALGO LOGIC: `env.action_space` specific logic
-        if isinstance(env.action_space, Discrete):
-            probs = Categorical(logits=logits)
-            action = probs.sample()
-            actions[step], neglogprobs[step], entropys[step] = action.tolist()[0], -probs.log_prob(action), probs.entropy()
-
-        elif isinstance(env.action_space, MultiDiscrete):
-            logits_categories = torch.split(logits, env.action_space.nvec.tolist(), dim=1)
-            action = []
-            probs_categories = []
-            probs_entropies = torch.zeros((logits.shape[0]))
-            neglogprob = torch.zeros((logits.shape[0]))
-            for i in range(len(logits_categories)):
-                probs_categories.append(Categorical(logits=logits_categories[i]))
-                if len(action) != env.action_space.shape:
-                    action.append(probs_categories[i].sample())
-                neglogprob -= probs_categories[i].log_prob(action[i])
-                probs_entropies += probs_categories[i].entropy()
-            action = torch.stack(action).transpose(0, 1).tolist()
-            actions[step], neglogprobs[step], entropys[step] = action[0], neglogprob, probs_entropies
+        action, neglogprob, entropy = pg.get_action(obs[step:step+1])
+        actions[step], neglogprobs[step], entropys[step] = action.tolist()[0], neglogprob, entropy
 
         # TRY NOT TO MODIFY: execute the game and log data.
         next_obs, rewards[step], dones[step], _ = env.step(actions[step])
@@ -172,22 +190,7 @@ while global_step < args.total_timesteps:
     non_empty_idx = np.argmax(dones) + 1
     for _ in range(args.update_epochs):
         # ALGO LOGIC: `env.action_space` specific logic
-        logits = pg.forward(obs[:non_empty_idx])
-        if isinstance(env.action_space, Discrete):
-            probs = Categorical(logits=logits)
-            new_neglogprobs = -probs.log_prob(torch.LongTensor(actions[:non_empty_idx].astype(np.int)).to(device))
-
-        elif isinstance(env.action_space, MultiDiscrete):
-            logits_categories = torch.split(logits, env.action_space.nvec.tolist(), dim=1)
-            action = []
-            probs_categories = []
-            neglogprob = torch.zeros((logits.shape[0]))
-            for i in range(len(logits_categories)):
-                probs_categories.append(Categorical(logits=logits_categories[i]))
-                neglogprob -= probs_categories[i].log_prob(actions[:non_empty_idx][i])
-            action = torch.stack(action).transpose(0, 1).tolist()
-            new_neglogprobs = neglogprob
-
+        _, new_neglogprobs, _ = pg.get_action(obs[:non_empty_idx])
         ratio = torch.exp(neglogprobs[:non_empty_idx] - new_neglogprobs)
         surrogate1 = ratio * torch.Tensor(advantages)[:non_empty_idx].to(device)
         surrogate2 = torch.clamp(ratio, 1-args.clip_coef, 1+args.clip_coef) * torch.Tensor(advantages)[:non_empty_idx].to(device)
@@ -203,6 +206,6 @@ while global_step < args.total_timesteps:
     # TRY NOT TO MODIFY: record rewards for plotting purposes
     writer.add_scalar("charts/episode_reward", rewards.sum(), global_step)
     writer.add_scalar("losses/value_loss", vf_loss.item(), global_step)
-    writer.add_scalar("losses/entropy", entropys.mean().item(), global_step)
+    writer.add_scalar("losses/entropy", entropys[:step].mean().item(), global_step)
 env.close()
 writer.close()
