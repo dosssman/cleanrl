@@ -148,12 +148,13 @@ export CUDA_VISIBLE_DEVICES=0
 #     ) >& /dev/null &
 # done
 
-# State Obs Normalization and no norm test
+# State Obs Normalization and no norm test ( with and without KLs)
 # for seed in {1..5}; do
   # # HopperBulletEnv
+  # # Baseline NOKL
   # (sleep 0.3 && nohup python ppo_cont_gae_normenv.py \
   # --prod-mode True \
-  # --wandb-project-name cleanrl.ppo_gae.norm_obs \
+  # --wandb-project-name cleanrl.ppo_gae.norm_obs_rews \
   # --wandb-entity dosssman \
   # --total-timesteps 1000000 \
   # --gym-id HopperBulletEnv-v0 \
@@ -161,9 +162,20 @@ export CUDA_VISIBLE_DEVICES=0
   # --nokl
   # ) >& /dev/null &
   #
+  # # Baseline with KL
   # (sleep 0.3 && nohup python ppo_cont_gae_normenv.py \
   # --prod-mode True \
-  # --wandb-project-name cleanrl.ppo_gae.norm_obs \
+  # --wandb-project-name cleanrl.ppo_gae.norm_obs_rews \
+  # --wandb-entity dosssman \
+  # --total-timesteps 1000000 \
+  # --gym-id HopperBulletEnv-v0 \
+  # --seed $seed
+  # ) >& /dev/null &
+  #
+  # # Norm Obs No KL
+  # (sleep 0.3 && nohup python ppo_cont_gae_normenv.py \
+  # --prod-mode True \
+  # --wandb-project-name cleanrl.ppo_gae.norm_obs_rews \
   # --wandb-entity dosssman \
   # --total-timesteps 1000000 \
   # --gym-id HopperBulletEnv-v0 \
@@ -171,8 +183,93 @@ export CUDA_VISIBLE_DEVICES=0
   # --norm-obs \
   # --nokl
   # ) >& /dev/null &
+  #
+  # # Norm Obs with KL
+  # (sleep 0.3 && nohup python ppo_cont_gae_normenv.py \
+  # --prod-mode True \
+  # --wandb-project-name cleanrl.ppo_gae.norm_obs_rews \
+  # --wandb-entity dosssman \
+  # --total-timesteps 1000000 \
+  # --gym-id HopperBulletEnv-v0 \
+  # --seed $seed \
+  # --norm-obs
+  # ) >& /dev/null &
   # # End HopperBulletEnv
   #
+  # # Norm Rewards No KL
+  # (sleep 0.3 && nohup python ppo_cont_gae_normenv.py \
+  # --prod-mode True \
+  # --wandb-project-name cleanrl.ppo_gae.norm_obs_rews \
+  # --wandb-entity dosssman \
+  # --total-timesteps 1000000 \
+  # --gym-id HopperBulletEnv-v0 \
+  # --seed $seed \
+  # --norm-rewards \
+  # --nokl
+  # ) >& /dev/null &
+  #
+  # # Norm Rewards with KL
+  # (sleep 0.3 && nohup python ppo_cont_gae_normenv.py \
+  # --prod-mode True \
+  # --wandb-project-name cleanrl.ppo_gae.norm_obs_rews \
+  # --wandb-entity dosssman \
+  # --total-timesteps 1000000 \
+  # --gym-id HopperBulletEnv-v0 \
+  # --seed $seed \
+  # --norm-rewards
+  # ) >& /dev/null &
+  # # End HopperBulletEnv
+
+  # # Both Rew and Obs normalization No KL
+  # (sleep 0.3 && nohup python ppo_cont_gae_normenv.py \
+  # --prod-mode True \
+  # --wandb-project-name cleanrl.ppo_gae.norm_obs_rews \
+  # --wandb-entity dosssman \
+  # --total-timesteps 1000000 \
+  # --gym-id HopperBulletEnv-v0 \
+  # --seed $seed \
+  # --norm-rewards \
+  # --norm-obs \
+  # --nokl
+  # ) >& /dev/null &
+  #
+  # # With KL
+  # (sleep 0.3 && nohup python ppo_cont_gae_normenv.py \
+  # --prod-mode True \
+  # --wandb-project-name cleanrl.ppo_gae.norm_obs_rews \
+  # --wandb-entity dosssman \
+  # --total-timesteps 1000000 \
+  # --gym-id HopperBulletEnv-v0 \
+  # --seed $seed \
+  # --norm-rewards \
+  # --norm-obs
+  # ) >& /dev/null &
+  # # End HopperBulletEnv
+
+  # Both Return normalization No KL
+  # (sleep 0.3 && nohup python ppo_cont_gae_normenv.py \
+  # --prod-mode True \
+  # --wandb-project-name cleanrl.ppo_gae.norm_obs_rews \
+  # --wandb-entity dosssman \
+  # --total-timesteps 1000000 \
+  # --gym-id HopperBulletEnv-v0 \
+  # --seed $seed \
+  # --norm-returns \
+  # --nokl
+  # ) >& /dev/null &
+  #
+  # # Norm Return with KL
+  # (sleep 0.3 && nohup python ppo_cont_gae_normenv.py \
+  # --prod-mode True \
+  # --wandb-project-name cleanrl.ppo_gae.norm_obs_rews \
+  # --wandb-entity dosssman \
+  # --total-timesteps 1000000 \
+  # --gym-id HopperBulletEnv-v0 \
+  # --seed $seed \
+  # --norm-returns \
+  # ) >& /dev/null &
+  # # End HopperBulletEnv
+
   # # Walker2D
   # (sleep 0.3 && nohup python ppo_cont_gae_normenv.py \
   # --prod-mode True \
@@ -195,7 +292,7 @@ export CUDA_VISIBLE_DEVICES=0
   # --nokl
   # ) >& /dev/null &
   # # End Walker2D
-  #
+
   # # HalfCheetahBulletEnv
   # (sleep 0.3 && nohup python ppo_cont_gae_normenv.py \
   # --prod-mode True \
@@ -218,7 +315,7 @@ export CUDA_VISIBLE_DEVICES=0
   # --nokl
   # ) >& /dev/null &
   # # End HalfCheetahBulletEnv
-  #
+
   # # HumanoidBulletEnv
   # (sleep 0.3 && nohup python ppo_cont_gae_normenv.py \
   # --prod-mode True \
@@ -244,7 +341,7 @@ export CUDA_VISIBLE_DEVICES=0
 # done
 
 # State Obs Normalization and no norm test with KL-based early stop version
-# for seed in {1..5}; do
+# for seed in 1; do
   # # HopperBulletEnv
   # (sleep 0.3 && nohup python ppo_cont_gae_normenv.py \
   # --prod-mode True \
@@ -263,6 +360,16 @@ export CUDA_VISIBLE_DEVICES=0
   # --gym-id HopperBulletEnv-v0 \
   # --seed $seed \
   # --norm-obs
+  # ) >& /dev/null &
+  #
+  # # Default baseline
+  # (sleep 0.3 && nohup python ppo_continuous_gae_2.py \
+  # --prod-mode True \
+  # --wandb-project-name cleanrl.ppo_gae.norm_obs_withkl \
+  # --wandb-entity dosssman \
+  # --total-timesteps 1000000 \
+  # --gym-id HopperBulletEnv-v0 \
+  # --seed $seed
   # ) >& /dev/null &
   # # End HopperBulletEnv
 
@@ -514,188 +621,537 @@ export CUDA_VISIBLE_DEVICES=0
 
 # # LR Annealing experiment: Without KL Upper bound
 # for seed in {1..3}; do
-#   # HopperBulletEnv
-#   # Baselines without Anneal
-#   (sleep 0.3 && nohup python ppo_cont_gae_normenv.py \
+  # # HopperBulletEnv
+  # # Baselines without Anneal
+  # (sleep 0.3 && nohup python ppo_continuous_gae_2_anneal.py \
+  # --prod-mode True \
+  # --wandb-project-name cleanrl.ppo_gae.anneal_lr \
+  # --wandb-entity dosssman \
+  # --total-timesteps 1000000 \
+  # --gym-id HopperBulletEnv-v0 \
+  # --seed $seed \
+  # --nokl
+  # ) >& /dev/null &
+  #
+  # # With Anneal
+  # (sleep 0.3 && nohup python ppo_continuous_gae_2_anneal.py \
+  # --prod-mode True \
+  # --wandb-project-name cleanrl.ppo_gae.anneal_lr \
+  # --wandb-entity dosssman \
+  # --total-timesteps 1000000 \
+  # --gym-id HopperBulletEnv-v0 \
+  # --seed $seed \
+  # --nokl \
+  # --anneal-lr
+  # ) >& /dev/null &
+  # # End HopperBulletEnv
+
+  # # Walker2D
+  # (sleep 0.3 && nohup python ppo_continuous_gae_2_anneal.py \
+  # --prod-mode True \
+  # --wandb-project-name cleanrl.ppo_gae.anneal_lr \
+  # --wandb-entity dosssman \
+  # --total-timesteps 1000000 \
+  # --gym-id Walker2DBulletEnv-v0 \
+  # --seed $seed \
+  # --nokl
+  # ) >& /dev/null &
+  #
+  # (sleep 0.3 && nohup python ppo_continuous_gae_2_anneal.py \
+  # --prod-mode True \
+  # --wandb-project-name cleanrl.ppo_gae.anneal_lr \
+  # --wandb-entity dosssman \
+  # --total-timesteps 1000000 \
+  # --gym-id Walker2DBulletEnv-v0 \
+  # --seed $seed \
+  # --nokl \
+  # --anneal-lr
+  # ) >& /dev/null &
+  # # End Walker2D
+
+  # # HalfCheetahBulletEnv
+  # (sleep 0.3 && nohup python ppo_continuous_gae_2_anneal.py \
+  # --prod-mode True \
+  # --wandb-project-name cleanrl.ppo_gae.anneal_lr \
+  # --wandb-entity dosssman \
+  # --total-timesteps 1000000 \
+  # --gym-id HalfCheetahBulletEnv-v0 \
+  # --seed $seed \
+  # --nokl
+  # ) >& /dev/null &
+  #
+  # (sleep 0.3 && nohup python ppo_continuous_gae_2_anneal.py \
+  # --prod-mode True \
+  # --wandb-project-name cleanrl.ppo_gae.anneal_lr \
+  # --wandb-entity dosssman \
+  # --total-timesteps 1000000 \
+  # --gym-id HalfCheetahBulletEnv-v0 \
+  # --seed $seed \
+  # --nokl \
+  # --anneal-lr
+  # ) >& /dev/null &
+  # # End HalfCheetahBulletEnv
+  #
+  # # HumanoidBulletEnv
+  # (sleep 0.3 && nohup python ppo_continuous_gae_2_anneal.py \
+  # --prod-mode True \
+  # --wandb-project-name cleanrl.ppo_gae.anneal_lr \
+  # --wandb-entity dosssman \
+  # --total-timesteps 1000000 \
+  # --gym-id HumanoidBulletEnv-v0 \
+  # --seed $seed \
+  # --nokl
+  # ) >& /dev/null &
+  #
+  # (sleep 0.3 && nohup python ppo_continuous_gae_2_anneal.py \
+  # --prod-mode True \
+  # --wandb-project-name cleanrl.ppo_gae.anneal_lr \
+  # --wandb-entity dosssman \
+  # --total-timesteps 1000000 \
+  # --gym-id HumanoidBulletEnv-v0 \
+  # --seed $seed \
+  # --nokl \
+  # --anneal-lr
+  # ) >& /dev/null &
+  # # End HumanoidBulletEnv
+# done
+# # End LR Annealing experiment: Without KL Upper bound
+
+# # LR Annealing experiment: With KL Upper bound
+# for seed in {1..3}; do
+  # # HopperBulletEnv
+  # # Baselines without Anneal
+  # (sleep 0.3 && nohup python ppo_continuous_gae_2_anneal.py \
+  # --prod-mode True \
+  # --wandb-project-name cleanrl.ppo_gae.anneal_lr \
+  # --wandb-entity dosssman \
+  # --total-timesteps 1000000 \
+  # --gym-id HopperBulletEnv-v0 \
+  # --seed $seed
+  # ) >& /dev/null &
+  #
+  # # With Anneal
+  # (sleep 0.3 && nohup python ppo_continuous_gae_2_anneal.py \
+  # --prod-mode True \
+  # --wandb-project-name cleanrl.ppo_gae.anneal_lr \
+  # --wandb-entity dosssman \
+  # --total-timesteps 1000000 \
+  # --gym-id HopperBulletEnv-v0 \
+  # --seed $seed \
+  # --anneal-lr
+  # ) >& /dev/null &
+  # # End HopperBulletEnv
+
+  # # Walker2D
+  # (sleep 0.3 && nohup python ppo_continuous_gae_2_anneal.py \
+  # --prod-mode True \
+  # --wandb-project-name cleanrl.ppo_gae.anneal_lr \
+  # --wandb-entity dosssman \
+  # --total-timesteps 1000000 \
+  # --gym-id Walker2DBulletEnv-v0 \
+  # --seed $seed
+  # ) >& /dev/null &
+  #
+  # (sleep 0.3 && nohup python ppo_continuous_gae_2_anneal.py \
+  # --prod-mode True \
+  # --wandb-project-name cleanrl.ppo_gae.anneal_lr \
+  # --wandb-entity dosssman \
+  # --total-timesteps 1000000 \
+  # --gym-id Walker2DBulletEnv-v0 \
+  # --seed $seed \
+  # --anneal-lr
+  # ) >& /dev/null &
+  # # End Walker2D
+
+#   # HalfCheetahBulletEnv
+#   (sleep 0.3 && nohup python ppo_continuous_gae_2_anneal.py \
 #   --prod-mode True \
 #   --wandb-project-name cleanrl.ppo_gae.anneal_lr \
 #   --wandb-entity dosssman \
 #   --total-timesteps 1000000 \
-#   --gym-id HopperBulletEnv-v0 \
-#   --seed $seed \
-#   --nokl
+#   --gym-id HalfCheetahBulletEnv-v0 \
+#   --seed $seed
 #   ) >& /dev/null &
 #
-#   # With Anneal
-#   (sleep 0.3 && nohup python ppo_cont_gae_normenv.py \
+#   (sleep 0.3 && nohup python ppo_continuous_gae_2_anneal.py \
 #   --prod-mode True \
 #   --wandb-project-name cleanrl.ppo_gae.anneal_lr \
 #   --wandb-entity dosssman \
 #   --total-timesteps 1000000 \
+#   --gym-id HalfCheetahBulletEnv-v0 \
+#   --seed $seed \
+#   --anneal-lr
+#   ) >& /dev/null &
+#   # End HalfCheetahBulletEnv
+# #
+#   # HumanoidBulletEnv
+#   (sleep 0.3 && nohup python ppo_continuous_gae_2_anneal.py \
+#   --prod-mode True \
+#   --wandb-project-name cleanrl.ppo_gae.anneal_lr \
+#   --wandb-entity dosssman \
+#   --total-timesteps 1000000 \
+#   --gym-id HumanoidBulletEnv-v0 \
+#   --seed $seed
+#   ) >& /dev/null &
+#
+#   (sleep 0.3 && nohup python ppo_continuous_gae_2_anneal.py \
+#   --prod-mode True \
+#   --wandb-project-name cleanrl.ppo_gae.anneal_lr \
+#   --wandb-entity dosssman \
+#   --total-timesteps 1000000 \
+#   --gym-id HumanoidBulletEnv-v0 \
+#   --seed $seed \
+#   --anneal-lr
+#   ) >& /dev/null &
+#   # End HumanoidBulletEnv
+# done
+# # End LR Annealing experiment: With KL Upper bound
+
+# Reward Normalization and no norm test with KL-based early stop version
+
+# DEBUG Version: Cheking how the reward is clipped
+# HopperBulletEnv
+# (sleep 0.3 && nohup python ppo_cont_gae_normenv.py \
+# --prod-mode True \
+# --wandb-project-name cleanrl.ppo_gae.norm_debug \
+# --wandb-entity dosssman \
+# --total-timesteps 1000000 \
+# --gym-id HopperBulletEnv-v0 \
+# --seed 1
+# ) >& /dev/null &
+#
+# (sleep 0.3 && nohup python ppo_cont_gae_normenv.py \
+# --prod-mode True \
+# --wandb-project-name cleanrl.ppo_gae.norm_debug \
+# --wandb-entity dosssman \
+# --total-timesteps 1000000 \
+# --gym-id HopperBulletEnv-v0 \
+# --seed 1 \
+# --norm-rewards
+# ) >& /dev/null &
+
+# for seed in {1..5}; do
+#
+#   # Real deal
+#   # HopperBulletEnv
+#   (sleep 0.3 && nohup python ppo_cont_gae_normenv.py \
+#   --prod-mode True \
+#   --wandb-project-name cleanrl.ppo_gae.norm_rewards \
+#   --wandb-entity dosssman \
+#   --total-timesteps 1000000 \
+#   --gym-id HopperBulletEnv-v0 \
+#   --seed $seed
+#   ) >& /dev/null &
+#
+#   (sleep 0.3 && nohup python ppo_cont_gae_normenv.py \
+#   --prod-mode True \
+#   --wandb-project-name cleanrl.ppo_gae.norm_rewards \
+#   --wandb-entity dosssman \
+#   --total-timesteps 1000000 \
 #   --gym-id HopperBulletEnv-v0 \
 #   --seed $seed \
-#   --nokl \
-#   --anneal-lr
+#   --norm-rewards
 #   ) >& /dev/null &
 #   # End HopperBulletEnv
 #
 #   # Walker2D
 #   (sleep 0.3 && nohup python ppo_cont_gae_normenv.py \
 #   --prod-mode True \
-#   --wandb-project-name cleanrl.ppo_gae.anneal_lr \
+#   --wandb-project-name cleanrl.ppo_gae.norm_rewards \
 #   --wandb-entity dosssman \
 #   --total-timesteps 1000000 \
 #   --gym-id Walker2DBulletEnv-v0 \
-#   --seed $seed \
-#   --nokl
+#   --seed $seed
 #   ) >& /dev/null &
 #
 #   (sleep 0.3 && nohup python ppo_cont_gae_normenv.py \
 #   --prod-mode True \
-#   --wandb-project-name cleanrl.ppo_gae.anneal_lr \
+#   --wandb-project-name cleanrl.ppo_gae.norm_rewards \
 #   --wandb-entity dosssman \
 #   --total-timesteps 1000000 \
 #   --gym-id Walker2DBulletEnv-v0 \
 #   --seed $seed \
-#   --nokl \
-#   --anneal-lr
+#   --norm-rewards
 #   ) >& /dev/null &
 #   # End Walker2D
 #
 #   # HalfCheetahBulletEnv
 #   (sleep 0.3 && nohup python ppo_cont_gae_normenv.py \
 #   --prod-mode True \
-#   --wandb-project-name cleanrl.ppo_gae.anneal_lr \
+#   --wandb-project-name cleanrl.ppo_gae.norm_rewards \
 #   --wandb-entity dosssman \
 #   --total-timesteps 1000000 \
 #   --gym-id HalfCheetahBulletEnv-v0 \
-#   --seed $seed \
-#   --nokl
+#   --seed $seed
 #   ) >& /dev/null &
 #
 #   (sleep 0.3 && nohup python ppo_cont_gae_normenv.py \
 #   --prod-mode True \
-#   --wandb-project-name cleanrl.ppo_gae.anneal_lr \
+#   --wandb-project-name cleanrl.ppo_gae.norm_rewards \
 #   --wandb-entity dosssman \
 #   --total-timesteps 1000000 \
 #   --gym-id HalfCheetahBulletEnv-v0 \
 #   --seed $seed \
-#   --nokl \
-#   --anneal-lr
+#   --norm-rewards
 #   ) >& /dev/null &
 #   # End HalfCheetahBulletEnv
 #
 #   # HumanoidBulletEnv
 #   (sleep 0.3 && nohup python ppo_cont_gae_normenv.py \
 #   --prod-mode True \
-#   --wandb-project-name cleanrl.ppo_gae.anneal_lr \
+#   --wandb-project-name cleanrl.ppo_gae.norm_rewards \
 #   --wandb-entity dosssman \
 #   --total-timesteps 1000000 \
 #   --gym-id HumanoidBulletEnv-v0 \
-#   --seed $seed \
-#   --nokl
+#   --seed $seed
 #   ) >& /dev/null &
 #
 #   (sleep 0.3 && nohup python ppo_cont_gae_normenv.py \
 #   --prod-mode True \
-#   --wandb-project-name cleanrl.ppo_gae.anneal_lr \
+#   --wandb-project-name cleanrl.ppo_gae.norm_rewards \
 #   --wandb-entity dosssman \
 #   --total-timesteps 1000000 \
 #   --gym-id HumanoidBulletEnv-v0 \
 #   --seed $seed \
-#   --nokl \
-#   --anneal-lr
+#   --norm-rewards
 #   ) >& /dev/null &
 #   # End HumanoidBulletEnv
 # done
-# # End LR Annealing experiment: Without KL Upper bound
+# End Reward Obs Normalization and no norm test with KL-based early stop version
 
-# LR Annealing experiment: With KL Upper bound
-for seed in {1..3}; do
-  # HopperBulletEnv
-  # Baselines without Anneal
-  (sleep 0.3 && nohup python ppo_cont_gae_normenv.py \
-  --prod-mode True \
-  --wandb-project-name cleanrl.ppo_gae.anneal_lr \
-  --wandb-entity dosssman \
-  --total-timesteps 1000000 \
-  --gym-id HopperBulletEnv-v0 \
-  --seed $seed
-  ) >& /dev/null &
 
-  # With Anneal
-  (sleep 0.3 && nohup python ppo_cont_gae_normenv.py \
-  --prod-mode True \
-  --wandb-project-name cleanrl.ppo_gae.anneal_lr \
-  --wandb-entity dosssman \
-  --total-timesteps 1000000 \
-  --gym-id HopperBulletEnv-v0 \
-  --seed $seed \
-  --anneal-lr
-  ) >& /dev/null &
-  # End HopperBulletEnv
+# Norm rew and obs debugs on HopperBulletEnv with KL version
+# for seed in 1; do
+#   # HopperBulletEnv
+#   # normenv baseline:
+#   (sleep 0.3 && nohup python ppo_cont_gae_normenv_debug.py \
+#   --prod-mode True \
+#   --wandb-project-name cleanrl.ppo_gae.norm_debug \
+#   --wandb-entity dosssman \
+#   --total-timesteps 1000000 \
+#   --gym-id HopperBulletEnv-v0 \
+#   --seed 1
+#   ) >& /dev/null &
+#
+#   (sleep 0.3 && nohup python ppo_cont_gae_normenv_debug.py \
+#   --prod-mode True \
+#   --wandb-project-name cleanrl.ppo_gae.norm_debug \
+#   --wandb-entity dosssman \
+#   --total-timesteps 1000000 \
+#   --gym-id HopperBulletEnv-v0 \
+#   --seed 1 \
+#   --norm-rewards
+#   ) >& /dev/null &
+#
+#   (sleep 0.3 && nohup python ppo_cont_gae_normenv_debug.py \
+#   --prod-mode True \
+#   --wandb-project-name cleanrl.ppo_gae.norm_debug \
+#   --wandb-entity dosssman \
+#   --total-timesteps 1000000 \
+#   --gym-id HopperBulletEnv-v0 \
+#   --seed 1 \
+#   --norm-obs
+#   ) >& /dev/null &
+# done
 
-  # Walker2D
-  (sleep 0.3 && nohup python ppo_cont_gae_normenv.py \
-  --prod-mode True \
-  --wandb-project-name cleanrl.ppo_gae.anneal_lr \
-  --wandb-entity dosssman \
-  --total-timesteps 1000000 \
-  --gym-id Walker2DBulletEnv-v0 \
-  --seed $seed
-  ) >& /dev/null &
+# Othorgonal initialization vs default xavier initialization
+# for seed in {1..5}; do
+    # #### HopperBulletEnv ####
+    # # NOKL Section
+    # # Weight init baseline with xavier / glorot init
+    # (sleep 0.3 && nohup python ppo_continuous_gae_2_nninit.py \
+    # --prod-mode True \
+    # --wandb-project-name cleanrl.ppo_gae.weights_init \
+    # --wandb-entity dosssman \
+    # --total-timesteps 1000000 \
+    # --gym-id HopperBulletEnv-v0 \
+    # --seed $seed \
+    # --nokl
+    # ) >& /dev/null &
+    #
+    # # Weight init as orthogonal || No KL Bound
+    # (sleep 0.3 && nohup python ppo_continuous_gae_2_nninit.py \
+    # --prod-mode True \
+    # --wandb-project-name cleanrl.ppo_gae.weights_init \
+    # --wandb-entity dosssman \
+    # --total-timesteps 1000000 \
+    # --gym-id HopperBulletEnv-v0 \
+    # --seed $seed \
+    # --weights-init orthogonal \
+    # --nokl
+    # ) >& /dev/null &
+    # # End NOKL Section
+    #
+    # # With KL
+    # # Weight init baseline with xavier / glorot init
+    # (sleep 0.3 && nohup python ppo_continuous_gae_2_nninit.py \
+    # --prod-mode True \
+    # --wandb-project-name cleanrl.ppo_gae.weights_init \
+    # --wandb-entity dosssman \
+    # --total-timesteps 1000000 \
+    # --gym-id HopperBulletEnv-v0 \
+    # --seed $seed \
+    # ) >& /dev/null &
+    #
+    # # Weight init as orthogonal || No KL Bound
+    # (sleep 0.3 && nohup python ppo_continuous_gae_2_nninit.py \
+    # --prod-mode True \
+    # --wandb-project-name cleanrl.ppo_gae.weights_init \
+    # --wandb-entity dosssman \
+    # --total-timesteps 1000000 \
+    # --gym-id HopperBulletEnv-v0 \
+    # --seed $seed \
+    # --weights-init orthogonal \
+    # ) >& /dev/null &
+    # # End No KL
+    #
+    #
+    # #### HumanoidBulletEnv ####
+    # # NOKL Section
+    # # Weight init baseline with xavier / glorot init
+    # (sleep 0.3 && nohup python ppo_continuous_gae_2_nninit.py \
+    # --prod-mode True \
+    # --wandb-project-name cleanrl.ppo_gae.weights_init \
+    # --wandb-entity dosssman \
+    # --total-timesteps 1000000 \
+    # --gym-id HumanoidBulletEnv-v0 \
+    # --seed $seed \
+    # --nokl
+    # ) >& /dev/null &
+    #
+    # # Weight init as orthogonal || No KL Bound
+    # (sleep 0.3 && nohup python ppo_continuous_gae_2_nninit.py \
+    # --prod-mode True \
+    # --wandb-project-name cleanrl.ppo_gae.weights_init \
+    # --wandb-entity dosssman \
+    # --total-timesteps 1000000 \
+    # --gym-id HumanoidBulletEnv-v0 \
+    # --seed $seed \
+    # --weights-init orthogonal \
+    # --nokl
+    # ) >& /dev/null &
+    # # End NOKL Section
+    #
+    # # With KL
+    # # Weight init baseline with xavier / glorot init
+    # (sleep 0.3 && nohup python ppo_continuous_gae_2_nninit.py \
+    # --prod-mode True \
+    # --wandb-project-name cleanrl.ppo_gae.weights_init \
+    # --wandb-entity dosssman \
+    # --total-timesteps 1000000 \
+    # --gym-id HumanoidBulletEnv-v0 \
+    # --seed $seed \
+    # ) >& /dev/null &
+    #
+    # # Weight init as orthogonal || No KL Bound
+    # (sleep 0.3 && nohup python ppo_continuous_gae_2_nninit.py \
+    # --prod-mode True \
+    # --wandb-project-name cleanrl.ppo_gae.weights_init \
+    # --wandb-entity dosssman \
+    # --total-timesteps 1000000 \
+    # --gym-id HumanoidBulletEnv-v0 \
+    # --seed $seed \
+    # --weights-init orthogonal \
+    # ) >& /dev/null &
+    # # End No KL
 
-  (sleep 0.3 && nohup python ppo_cont_gae_normenv.py \
-  --prod-mode True \
-  --wandb-project-name cleanrl.ppo_gae.anneal_lr \
-  --wandb-entity dosssman \
-  --total-timesteps 1000000 \
-  --gym-id Walker2DBulletEnv-v0 \
-  --seed $seed \
-  --anneal-lr
-  ) >& /dev/null &
-  # End Walker2D
 
-  # HalfCheetahBulletEnv
-  (sleep 0.3 && nohup python ppo_cont_gae_normenv.py \
-  --prod-mode True \
-  --wandb-project-name cleanrl.ppo_gae.anneal_lr \
-  --wandb-entity dosssman \
-  --total-timesteps 1000000 \
-  --gym-id HalfCheetahBulletEnv-v0 \
-  --seed $seed
-  ) >& /dev/null &
-
-  (sleep 0.3 && nohup python ppo_cont_gae_normenv.py \
-  --prod-mode True \
-  --wandb-project-name cleanrl.ppo_gae.anneal_lr \
-  --wandb-entity dosssman \
-  --total-timesteps 1000000 \
-  --gym-id HalfCheetahBulletEnv-v0 \
-  --seed $seed \
-  --anneal-lr
-  ) >& /dev/null &
-  # End HalfCheetahBulletEnv
-
-  # HumanoidBulletEnv
-  (sleep 0.3 && nohup python ppo_cont_gae_normenv.py \
-  --prod-mode True \
-  --wandb-project-name cleanrl.ppo_gae.anneal_lr \
-  --wandb-entity dosssman \
-  --total-timesteps 1000000 \
-  --gym-id HumanoidBulletEnv-v0 \
-  --seed $seed
-  ) >& /dev/null &
-
-  (sleep 0.3 && nohup python ppo_cont_gae_normenv.py \
-  --prod-mode True \
-  --wandb-project-name cleanrl.ppo_gae.anneal_lr \
-  --wandb-entity dosssman \
-  --total-timesteps 1000000 \
-  --gym-id HumanoidBulletEnv-v0 \
-  --seed $seed \
-  --anneal-lr
-  ) >& /dev/null &
-  # End HumanoidBulletEnv
-done
-# End LR Annealing experiment: With KL Upper bound
+    # #### Walker2DBulletEnv ####
+    # # NOKL Section
+    # # Weight init baseline with xavier / glorot init
+    # (sleep 0.3 && nohup python ppo_continuous_gae_2_nninit.py \
+    # --prod-mode True \
+    # --wandb-project-name cleanrl.ppo_gae.weights_init \
+    # --wandb-entity dosssman \
+    # --total-timesteps 1000000 \
+    # --gym-id Walker2DBulletEnv-v0 \
+    # --seed $seed \
+    # --nokl
+    # ) >& /dev/null &
+    #
+    # # Weight init as orthogonal || No KL Bound
+    # (sleep 0.3 && nohup python ppo_continuous_gae_2_nninit.py \
+    # --prod-mode True \
+    # --wandb-project-name cleanrl.ppo_gae.weights_init \
+    # --wandb-entity dosssman \
+    # --total-timesteps 1000000 \
+    # --gym-id Walker2DBulletEnv-v0 \
+    # --seed $seed \
+    # --weights-init orthogonal \
+    # --nokl
+    # ) >& /dev/null &
+    # # End NOKL Section
+    #
+    # # With KL
+    # # Weight init baseline with xavier / glorot init
+    # (sleep 0.3 && nohup python ppo_continuous_gae_2_nninit.py \
+    # --prod-mode True \
+    # --wandb-project-name cleanrl.ppo_gae.weights_init \
+    # --wandb-entity dosssman \
+    # --total-timesteps 1000000 \
+    # --gym-id Walker2DBulletEnv-v0 \
+    # --seed $seed \
+    # ) >& /dev/null &
+    #
+    # # Weight init as orthogonal || No KL Bound
+    # (sleep 0.3 && nohup python ppo_continuous_gae_2_nninit.py \
+    # --prod-mode True \
+    # --wandb-project-name cleanrl.ppo_gae.weights_init \
+    # --wandb-entity dosssman \
+    # --total-timesteps 1000000 \
+    # --gym-id Walker2DBulletEnv-v0 \
+    # --seed $seed \
+    # --weights-init orthogonal \
+    # ) >& /dev/null &
+    # # End No KL
+    #
+    #
+    # #### HalfCheetahBulletEnv ####
+    # # NOKL Section
+    # # Weight init baseline with xavier / glorot init
+    # (sleep 0.3 && nohup python ppo_continuous_gae_2_nninit.py \
+    # --prod-mode True \
+    # --wandb-project-name cleanrl.ppo_gae.weights_init \
+    # --wandb-entity dosssman \
+    # --total-timesteps 1000000 \
+    # --gym-id HalfCheetahBulletEnv-v0 \
+    # --seed $seed \
+    # --nokl
+    # ) >& /dev/null &
+    #
+    # # Weight init as orthogonal || No KL Bound
+    # (sleep 0.3 && nohup python ppo_continuous_gae_2_nninit.py \
+    # --prod-mode True \
+    # --wandb-project-name cleanrl.ppo_gae.weights_init \
+    # --wandb-entity dosssman \
+    # --total-timesteps 1000000 \
+    # --gym-id HalfCheetahBulletEnv-v0 \
+    # --seed $seed \
+    # --weights-init orthogonal \
+    # --nokl
+    # ) >& /dev/null &
+    # # End NOKL Section
+    #
+    # # With KL
+    # # Weight init baseline with xavier / glorot init
+    # (sleep 0.3 && nohup python ppo_continuous_gae_2_nninit.py \
+    # --prod-mode True \
+    # --wandb-project-name cleanrl.ppo_gae.weights_init \
+    # --wandb-entity dosssman \
+    # --total-timesteps 1000000 \
+    # --gym-id HalfCheetahBulletEnv-v0 \
+    # --seed $seed \
+    # ) >& /dev/null &
+    #
+    # # Weight init as orthogonal || No KL Bound
+    # (sleep 0.3 && nohup python ppo_continuous_gae_2_nninit.py \
+    # --prod-mode True \
+    # --wandb-project-name cleanrl.ppo_gae.weights_init \
+    # --wandb-entity dosssman \
+    # --total-timesteps 1000000 \
+    # --gym-id HalfCheetahBulletEnv-v0 \
+    # --seed $seed \
+    # --weights-init orthogonal \
+    # ) >& /dev/null &
+    # # End No KL
+# done

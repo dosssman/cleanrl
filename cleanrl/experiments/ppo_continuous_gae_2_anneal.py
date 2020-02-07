@@ -27,7 +27,7 @@ if __name__ == "__main__":
                        help='the learning rate of the optimizer')
     parser.add_argument('--seed', type=int, default=1,
                        help='seed of the experiment')
-    parser.add_argument('--episode-length', type=int, default=1000,
+    parser.add_argument('--episode-length', type=int, default=0,
                        help='the maximum length of each episode')
     parser.add_argument('--total-timesteps', type=int, default=100000,
                        help='total timesteps of the experiments')
@@ -59,17 +59,19 @@ if __name__ == "__main__":
     parser.add_argument('--clip-coef', type=float, default=0.2,
                        help="the surrogate clipping coefficient")
     # MODIFIED: Slight variant
-    parser.add_argument('--epoch-length', type=int, default=1000,
-                       help='the maximum length of each episode')
     parser.add_argument('--update-epochs', type=int, default=100,
                         help="the K epochs to update the policy")
+    # KL toggling
+    parser.add_argument('--nokl', action='store_true',
+                        help="Disable KL-based early stopping of policy updates")
     parser.add_argument('--target-kl', type=float, default=0.015)
     parser.add_argument('--value-lr', type=float, default=1e-3)
     parser.add_argument('--policy-lr', type=float, default=3e-4)
     parser.add_argument('--lam', type=float, default=0.97,
                         help='GAE Lambda coef.')
-    parser.add_argument('--nokl', action='store_true',
-                        help='If toggled, the policy updates will not be early stopped')
+    # MODIFIED: Toggles for ADAM LR Annealing
+    parser.add_argument('--anneal-lr', action='store_true',
+                        help="Toggle learning rate annealing for policy and value")
 
     args = parser.parse_args()
     if not args.seed:
@@ -203,36 +205,43 @@ class ReplayBuffer():
 buffer = ReplayBuffer(args.episode_length)
 
 # MODIFIED Helper for deterministic eval of agent
-# def test_agent( env, policy, eval_episodes=1):
-#     returns = []
-#     lengths = []
-#
-#     for eval_ep in range( eval_episodes):
-#         ret = 0.
-#         done = False
-#         t = 0
-#
-#         obs = np.array( env.reset())
-#
-#         while not done:
-#             with torch.no_grad():
-#                 action = pg.get_det_action([obs])
-#                 action = action.numpy()[0]
-#
-#             obs, rew, done, _ = env.step( action)
-#             obs = np.array( obs)
-#             ret += rew
-#             t += 1
-#         # TODO: Break if max episode length is breached
-#
-#         returns.append( ret)
-#         lengths.append( t)
-#
-#     return returns, lengths
+def test_agent( env, policy, eval_episodes=1):
+    returns = []
+    lengths = []
+
+    for eval_ep in range( eval_episodes):
+        ret = 0.
+        done = False
+        t = 0
+
+        obs = np.array( env.reset())
+
+        while not done:
+            with torch.no_grad():
+                action = pg.get_det_action([obs])
+                action = action.numpy()[0]
+
+            obs, rew, done, _ = env.step( action)
+            obs = np.array( obs)
+            ret += rew
+            t += 1
+        # TODO: Break if max episode length is breached
+
+        returns.append( ret)
+        lengths.append( t)
+
+    return returns, lengths
 
 # MODIFIED: Separate optimizer and learning rates
 pg_optimizer = optim.Adam( list(pg.parameters()), lr=args.policy_lr)
 v_optimizer = optim.Adam( list(vf.parameters()), lr=args.value_lr)
+
+# MODIFIED: Adam learning rate annealing scheduler
+if args.anneal_lr:
+    anneal_fn = lambda f: 1-f / args.total_timesteps
+    pg_lr_scheduler = optim.lr_scheduler.LambdaLR( pg_optimizer, lr_lambda=anneal_fn)
+    vf_lr_scheduler = optim.lr_scheduler.LambdaLR( v_optimizer, lr_lambda=anneal_fn)
+
 loss_fn = nn.MSELoss()
 
 # TRY NOT TO MODIFY: start the game
@@ -378,6 +387,10 @@ while global_step < args.total_timesteps:
         # TODO: Gradient clip experiement
         v_optimizer.step()
 
+    if args.anneal_lr:
+        pg_lr_scheduler.step()
+        vf_lr_scheduler.step()
+
     if not args.notb:
         writer.add_scalar("charts/episode_reward",
             sampling_stats["train_episode_return"], global_step)
@@ -386,13 +399,19 @@ while global_step < args.total_timesteps:
         # MODIFIED: After how many iters did the policy udate stop ?
         if not args.nokl:
             writer.add_scalar("debug/pg_stop_iter", i_epoch_pi, global_step)
+
         writer.add_scalar("debug/episode_count", sampling_stats["ep_count"], global_step)
         writer.add_scalar("debug/mean_episode_length", sampling_stats["ep_count"], global_step)
 
-        # # MODIFIED: Evaluating agent in determinsitic mode
-        # eval_returns, eval_lenghts = test_agent( env, pg, 3)
-        # writer.add_scalar("debug/det_eval_return", np.mean( eval_returns), global_step)
-        # writer.add_scalar("debug/det_eval_length", np.mean( eval_lenghts), global_step)
+        # MODIFIED: Keeping track of the annealed lr for each component
+        if args.anneal_lr:
+            writer.add_scalar("debug/policy_lr", pg_lr_scheduler.get_lr()[0], global_step)
+            writer.add_scalar("debug/value_lr", vf_lr_scheduler.get_lr()[0], global_step)
+
+        # MODIFIED: Evaluating agent in determinsitic mode
+        eval_returns, eval_lenghts = test_agent( env, pg, 3)
+        writer.add_scalar("debug/det_eval_return", np.mean( eval_returns), global_step)
+        writer.add_scalar("debug/det_eval_length", np.mean( eval_lenghts), global_step)
 
 
     print( "Step %d -- PLoss: %.6f -- VLoss: %.6f -- Train Mean Return: %.6f" % (global_step,

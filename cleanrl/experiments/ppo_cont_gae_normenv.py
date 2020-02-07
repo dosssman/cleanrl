@@ -59,6 +59,8 @@ if __name__ == "__main__":
     parser.add_argument('--clip-coef', type=float, default=0.2,
                        help="the surrogate clipping coefficient")
     # MODIFIED: Slight variant
+    parser.add_argument('--epoch-length', type=int, default=1000,
+                        help='the maximum length of each epoch AKA how many samples before updates')
     parser.add_argument('--update-epochs', type=int, default=100,
                         help="the K iterations to update the policy")
     parser.add_argument('--nokl', action='store_true',
@@ -179,6 +181,7 @@ class CustomEnv(object):
         if is_done:
             info['done'] = (self.counter, self.total_true_reward)
         return state, _reward, is_done, info
+
 env = CustomEnv( args.gym_id)
 
 input_shape, preprocess_obs_fn = preprocess_obs_space(env.env.observation_space, device)
@@ -191,7 +194,7 @@ if int(args.episode_length):
     else:
         env._max_episode_steps = int(args.episode_length)
 else:
-    args.episode_length = env._max_episode_steps if isinstance(env, TimeLimit) else 200
+    args.episode_length = env._max_episode_steps if isinstance(env, TimeLimit) else 1000
 if args.capture_video:
     env = Monitor(env, f'videos/{experiment_name}')
 
@@ -284,7 +287,7 @@ class ReplayBuffer():
     def size(self):
         return len(self.buffer)
 
-buffer = ReplayBuffer(args.episode_length)
+buffer = ReplayBuffer(args.epoch_length)
 
 # MODIFIED: Separate optimizer and learning rates
 pg_optimizer = optim.Adam( list(pg.parameters()), lr=args.policy_lr)
@@ -333,7 +336,7 @@ def sample():
     ep_lengths = []
     ep_Returns = [] # Keep track of the undiscounted return for each sampled episode
 
-    for step in range( args.episode_length):
+    for step in range( args.epoch_length):
         global_step += 1
         with torch.no_grad():
             action, action_logp = pg.get_action( [obs])
@@ -345,7 +348,12 @@ def sample():
         # for i in range( len(obs)):
         #     writer.add_scalar( "debug/observation_%d" % i, obs[i], global_step)
 
+
         next_obs, rew, done, _ = env.step( action)
+
+        # DEBUG: Comparing normalized vs unormalized rewards
+        # if not args.notb:
+        #     writer.add_scalar( "debug/reward", rew, global_step)
 
         ep_obs.append( obs)
         ep_acts.append( action)

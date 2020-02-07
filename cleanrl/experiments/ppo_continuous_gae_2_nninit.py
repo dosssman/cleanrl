@@ -71,6 +71,12 @@ if __name__ == "__main__":
     parser.add_argument('--nokl', action='store_true',
                         help='If toggled, the policy updates will not be early stopped')
 
+    # MODIFIED: Neural network init parametetization
+    parser.add_argument('--weights-init', default="xavier", choices=["xavier", "normal", 'orthogonal'],
+                        help='Selects the scheme used for weight initialization')
+    # Because lazyness, bring back the hidden-size to programatically init the layers
+    parser.add_argument('--hidden-sizes', nargs='+', type=int, default=[256,256])
+
     args = parser.parse_args()
     if not args.seed:
         args.seed = int(time.time())
@@ -112,20 +118,91 @@ if args.capture_video:
     env = Monitor(env, f'videos/{experiment_name}')
 
 # ALGO LOGIC: initialize agent here:
+# MODIFIED: Weight init function and helper from implementation-matters/code-for-paper
+STD = 2**0.5
+def orthogonal_init(tensor, gain=1):
+    '''
+    Fills the input `Tensor` using the orthogonal initialization scheme from OpenAI
+    Args:
+        tensor: an n-dimensional `torch.Tensor`, where :math:`n \geq 2`
+        gain: optional scaling factor
+
+    Examples:
+        >>> w = torch.empty(3, 5)
+        >>> orthogonal_init(w)
+    '''
+    if tensor.ndimension() < 2:
+        raise ValueError("Only tensors with 2 or more dimensions are supported")
+
+    rows = tensor.size(0)
+    cols = tensor[0].numel()
+    flattened = tensor.new(rows, cols).normal_(0, 1)
+
+    if rows < cols:
+        flattened.t_()
+
+    # Compute the qr factorization
+    u, s, v = torch.svd(flattened, some=True)
+    if rows < cols:
+        u.t_()
+    q = u if tuple(u.shape) == (rows, cols) else v
+    with torch.no_grad():
+        tensor.view_as(q).copy_(q)
+        tensor.mul_(gain)
+    return tensor
+
+def initialize_weights(mod, initialization_type, scale=STD):
+    '''
+    Weight initializer for the models.
+    Inputs: A model, Returns: none, initializes the parameters
+    '''
+    for p in mod.parameters():
+        if initialization_type == "normal":
+            p.data.normal_(0.01)
+        elif initialization_type == "xavier":
+            if len(p.data.shape) >= 2:
+                nn.init.xavier_uniform_(p.data)
+            else:
+                p.data.zero_()
+        elif initialization_type == "orthogonal":
+            if len(p.data.shape) >= 2:
+                orthogonal_init(p.data, gain=scale)
+            else:
+                p.data.zero_()
+        else:
+            raise ValueError("Need a valid initialization key")
+
 class Policy(nn.Module):
     def __init__(self):
         super(Policy, self).__init__()
-        self.fc1 = nn.Linear(input_shape, 256)
-        self.fc2 = nn.Linear(256, 256)
-        self.mean = nn.Linear(256, output_shape)
+        self.layers = nn.ModuleList()
+
+        current_dim = input_shape
+        for hsize in args.hidden_sizes:
+            layer = nn.Linear( current_dim, hsize)
+            initialize_weights( layer, args.weights_init)
+            self.layers.append( layer)
+            current_dim = hsize
+
+        self.mean = nn.Linear(args.hidden_sizes[-1], output_shape)
+        initialize_weights(self.mean, args.weights_init)
+        # TODO: If we don't do this, does the params of this last layer end up in
+        # the list when calling pg.parameters ( which is passed to the optimizer btw)
+        self.layers.append( self.mean)
+
         self.logstd = nn.Parameter(torch.zeros(1, output_shape))
+        # initialize_weights( logstd_layer, args.weights_init)
+        # self.layers.append( self.logstd) # Can't add this to module list
 
     def forward(self, x):
         x = preprocess_obs_fn(x)
-        x = torch.tanh(self.fc1(x))
-        x = torch.tanh(self.fc2(x))
-        action_mean = self.mean(x)
+        # Forget the last 2 layers, which are mean and logstd
+        for layer in self.layers[:-1]:
+            x = torch.tanh( layer(x))
+
+        action_mean = self.layers[-1](x) # -1 is the mean layer
         action_logstd = self.logstd.expand_as(action_mean)
+
         return action_mean, action_logstd
 
     def get_action(self, x):
@@ -153,13 +230,24 @@ class Policy(nn.Module):
 class Value(nn.Module):
     def __init__(self):
         super(Value, self).__init__()
-        self.fc1 = nn.Linear(input_shape, 256)
-        self.fc2 = nn.Linear(256, 1)
+        self.layers = nn.ModuleList()
+
+        current_dim = input_shape
+        for hsize in args.hidden_sizes + [1,]:
+            layer = nn.Linear(current_dim, hsize)
+            initialize_weights( layer, args.weights_init)
+            self.layers.append( layer)
+            current_dim = hsize
+        # Note: The last layer will already be of dimension [H, 1]
 
     def forward(self, x):
         x = preprocess_obs_fn(x)
-        x = torch.tanh(self.fc1(x))
-        x = self.fc2(x)
+        for layer in self.layers[:-1]:
+            x = torch.tanh( layer(x))
+
+        # Final layer: No activation on this one !
+        x = self.layers[-1]( x)
+
         return x
 
 pg = Policy().to(device)
