@@ -1156,9 +1156,11 @@ export CUDA_VISIBLE_DEVICES=0
     # # End No KL
 # done
 
-# # Norm Returns with filter resets experiment
+# Norm Returns with filter resets experiment
 # for gym_id in HopperBulletEnv-v0 HumanoidBulletEnv-v0; do
+# for gym_id in Walker2DBulletEnv-v0 HalfCheetahBulletEnv-v0; do
 #   for seed in {1..5}; do
+#     ###### BASELINES ######
 #     # No KL Version
 #     (sleep 0.3 && nohup python impl_matters/ppo_continuous_gae.py \
 #     --prod-mode True \
@@ -1178,6 +1180,29 @@ export CUDA_VISIBLE_DEVICES=0
 #     --gym-id $gym_id \
 #     --seed $seed \
 #     --kl
+#     ) >& /dev/null &
+#
+#     ###### NORM RETURNS ######
+#     (sleep 0.3 && nohup python impl_matters/ppo_continuous_gae.py \
+#     --prod-mode True \
+#     --wandb-project-name cleanrl.ppo_gae.norm_returns \
+#     --wandb-entity dosssman \
+#     --total-timesteps 1000000 \
+#     --gym-id $gym_id \
+#     --seed $seed \
+#     --norm-returns
+#     ) >& /dev/null &
+#
+#     # With KL Version
+#     (sleep 0.3 && nohup python impl_matters/ppo_continuous_gae.py \
+#     --prod-mode True \
+#     --wandb-project-name cleanrl.ppo_gae.norm_returns \
+#     --wandb-entity dosssman \
+#     --total-timesteps 1000000 \
+#     --gym-id $gym_id \
+#     --seed $seed \
+#     --kl \
+#     --norm-returns
 #     ) >& /dev/null &
 #   done
 # done
