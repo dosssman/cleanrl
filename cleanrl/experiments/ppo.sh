@@ -1206,3 +1206,52 @@ export CUDA_VISIBLE_DEVICES=0
 #     ) >& /dev/null &
 #   done
 # done
+
+# Costa's Return Normalization experiments
+# for gym_id  in HopperBulletEnv-v0 HumanoidBulletEnv-v0 ; do
+for gym_id in Walker2DBulletEnv-v0 HalfCheetahBulletEnv-v0 HopperBulletEnv-v0 HumanoidBulletEnv-v0; do
+	for seed in {1..3}; do
+		# # No return filter reset
+		# (sleep 0.3 && nohup python ppo_return_norm_reset.py \
+		# 	--prod-mode True \
+		# 	--wandb-project-name cleanrl.ppo_return_norm \
+		# 	--wandb-entity dosssman \
+		# 	--total-timesteps 1000000 \
+		# 	--gym-id $gym_id \
+		# 	--seed $seed
+		# ) >& /dev/null &
+		# # Return Filter resetted
+		# (sleep 0.3 && nohup python ppo_return_norm_reset.py \
+		# 	--prod-mode True \
+		# 	--wandb-project-name cleanrl.ppo_return_norm \
+		# 	--wandb-entity dosssman \
+		# 	--total-timesteps 1000000 \
+		# 	--gym-id $gym_id \
+		# 	--seed $seed \
+		# 	--return-filter-reset True
+		# ) >& /dev/null &
+    #
+
+    #Adding custom baslines
+ 		(sleep 0.3 && nohup python impl_matters/ppo_continuous_gae.py
+      --prod-mode True \
+      --wandb-project-name cleanrl.ppo_return_norm \
+      --wandb-entity dosssman \
+      --total-timesteps 1000000 \
+      --gym-id $gym_id \
+      --seed $seed \
+      --kl
+		) >& /dev/null &
+
+    (sleep 0.3 && nohup python impl_matters/ppo_continuous_gae.py
+      --prod-mode True \
+      --wandb-project-name cleanrl.ppo_return_norm \
+      --wandb-entity dosssman \
+      --total-timesteps 1000000 \
+      --gym-id $gym_id \
+      --seed $seed \
+      --norm-returns \
+      --kl
+    ) >& /dev/null &
+	done
+done

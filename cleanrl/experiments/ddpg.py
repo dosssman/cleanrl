@@ -43,8 +43,6 @@ if __name__ == "__main__":
                         help="the wandb's project name")
     parser.add_argument('--wandb-entity', type=str, default=None,
                         help="the entity (team) of wandb's project")
-    parser.add_argument('--notb', action='store_true',
-                        help='No Tensorboard logging')
 
     # Algorithm specific arguments
     parser.add_argument('--buffer-size', type=int, default=int(1e5),
@@ -61,13 +59,17 @@ if __name__ == "__main__":
                         help='initial random exploration step count')
 
     # TODO: Add Parameter Noising support ~ https://arxiv.org/abs/1706.01905
-    parser.add_argument('--noise-type', type=str, choices=["ou", "naive"], default="ou",
+    parser.add_argument('--noise-type', type=str, choices=["ou", "naive", "param"], default="ou",
                         help='type of noise to be used when sampling exploratiry actions')
     parser.add_argument('--noise-std', type=float, default=0.1,
                         help="standard deviation of the Normal dist for action noise sampling")
 
     # Neural Network Parametrization
     parser.add_argument('--hidden-sizes', nargs='+', type=int, default=[256,128,80])
+
+    # TODO: Remove this trash latter
+    parser.add_argument('--notb', action='store_true',
+        help='No Tensorboard logging')
 
     args = parser.parse_args()
     if not args.seed:
@@ -194,6 +196,7 @@ def update_target_value(vf, vf_target, tau):
 update_target_value(qf, qf_target, 1.0)
 update_target_value(pg, pg_target, 1.0)
 
+# TODO: Separate learning rate for policy and value func.
 q_optimizer = optim.Adam(list(qf.parameters()),
     lr=args.learning_rate)
 p_optimizer = optim.Adam(list(pg.parameters()),
@@ -261,22 +264,35 @@ while global_step < args.total_timesteps:
         obs = next_obs.copy()
 
         # ALGO LOGIC: put action logic here
-        with torch.no_grad():
-            # TODO: Noising process ?
-            if global_step > args.start_steps:
-                action = pg.forward([obs]).tolist()[0]
-                if args.noise_type == "ou":
-                    # Ourstein Uhlenbeck noise from baseline
-                    action += ou_act_noise()
-                elif args.noise_type == "naive":
-                    action += args.noise_std * np.random.randn(output_shape) # From OpenAI SpinUp
+        if global_step > args.start_steps:
+
+            with torch.no_grad():
+                if args.noise_type in ["ou", "naive"]:
+                    action = pg.forward([obs]).tolist()[0]
+                    if args.noise_type == "ou":
+                        # Ourstein Uhlenbeck noise from baseline
+                        action += ou_act_noise()
+                    elif args.noise_type == "naive":
+                        action += args.noise_std * np.random.randn(output_shape) # From OpenAI SpinUp
+                elif args.noise_type == "param":
+                    # NAIVE Version: Sample the same epsilon and add it to every parameter
+                    noise = args.noise_std * np.random.randn(1)[0]
+                    for param in pg.parameters():
+                        param += noise
+                        # # DEBUG:
+                        # print( "# Noise: ", noise)
+                        # print( "# Param before noising:")
+                        # print( param)
+                        # print( "# Patam after noising:")
+                        # print( param + noise)
+                        # input()
+
+                    action = pg.forward([obs]).tolist()[0]
                 else:
                     raise NotImplementedError
-
                 action = np.clip( action, -act_limit, act_limit)
-
-            else:
-                action = env.action_space.sample()
+        else:
+            action = env.action_space.sample()
 
         # TRY NOT TO MODIFY: execute the game and log data.
         next_obs, rew, done, _ = env.step(action)

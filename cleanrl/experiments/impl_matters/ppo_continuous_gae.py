@@ -75,6 +75,10 @@ if __name__ == "__main__":
                         help="Toggles rewards normalization")
     parser.add_argument('--norm-returns', action='store_true',
                         help="Toggles returns normalization")
+    parser.add_argument('--no-obs-reset', action='store_true',
+                        help="When passed, the observation filter shall not be reset after the episode")
+    parser.add_argument('--no-reward-reset', action='store_true',
+                        help="When passed, the reward / return filter shall not be reset after the episode")
     parser.add_argument('--obs-clip', type=float, default=10.0,
                         help="Value for reward clipping, as per the paper")
     parser.add_argument('--rew-clip', type=float, default=5.0,
@@ -84,15 +88,20 @@ if __name__ == "__main__":
     parser.add_argument('--weights-init', default="xavier", choices=["xavier", 'orthogonal'],
                         help='Selects the scheme to be used for weights initialization')
 
+    # TMP: No tb
+    parser.add_argument('--notb', action='store_true')
+
     args = parser.parse_args()
     if not args.seed:
         args.seed = int(time.time())
 
 # TRY NOT TO MODIFY: setup the environment
-experiment_name = f"{args.gym_id}__{args.exp_name}__{args.seed}__{int(time.time())}"
-writer = SummaryWriter(f"runs/{experiment_name}")
-writer.add_text('hyperparameters', "|param|value|\n|-|-|\n%s" % (
-        '\n'.join([f"|{key}|{value}|" for key, value in vars(args).items()])))
+# TODO: Remove this notb trash later
+if not args.notb:
+    experiment_name = f"{args.gym_id}__{args.exp_name}__{args.seed}__{int(time.time())}"
+    writer = SummaryWriter(f"runs/{experiment_name}")
+    writer.add_text('hyperparameters', "|param|value|\n|-|-|\n%s" % (
+            '\n'.join([f"|{key}|{value}|" for key, value in vars(args).items()])))
 
 if args.prod_mode:
     import wandb
@@ -101,14 +110,122 @@ if args.prod_mode:
     wandb.save(os.path.abspath(__file__))
 
 # TRY NOT TO MODIFY: seeding
-device = torch.device('cpu')
+# TODO: Does it still work on gpu ?
+device = torch.device( "cuda" if torch.cuda.is_available() and args.cuda else "cpu")
 random.seed(args.seed)
 np.random.seed(args.seed)
 torch.manual_seed(args.seed)
 torch.backends.cudnn.deterministic = args.torch_deterministic
 
 # MODIFIED: Env Wrapper for Observation and Rewards normalizations from the original repository
-from cleanrl.experiments.impl_matters.torch_utils import RunningStat, ZFilter, Identity, StateWithTime, RewardFilter
+# Some helpers class first
+class RunningStat(object):
+    '''
+    Keeps track of first and second moments (mean and variance)
+    of a streaming time series.
+     Taken from https://github.com/joschu/modular_rl
+     Math in http://www.johndcook.com/blog/standard_deviation/
+    '''
+    def __init__(self, shape):
+        self._n = 0
+        self._M = np.zeros(shape)
+        self._S = np.zeros(shape)
+    def push(self, x):
+        x = np.asarray(x)
+        assert x.shape == self._M.shape
+        self._n += 1
+        if self._n == 1:
+            self._M[...] = x
+        else:
+            oldM = self._M.copy()
+            self._M[...] = oldM + (x - oldM) / self._n
+            self._S[...] = self._S + (x - oldM) * (x - self._M)
+    @property
+    def n(self):
+        return self._n
+    @property
+    def mean(self):
+        return self._M
+    @property
+    def var(self):
+        return self._S / (self._n - 1) if self._n > 1 else np.square(self._M)
+    @property
+    def std(self):
+        return np.sqrt(self.var)
+    @property
+    def shape(self):
+        return self._M.shape1
+
+class Identity:
+    '''
+    A convenience class which simply implements __call__
+    as the identity function
+    '''
+    def __call__(self, x, *args, **kwargs):
+        return x
+
+    def reset(self):
+        pass
+
+class RewardFilter:
+    """
+    Incorrect reward normalization [copied from OAI code]
+    update return
+    divide reward by std(return) without subtracting and adding back mean
+    """
+    def __init__(self, prev_filter, shape, gamma, clip=None):
+        assert shape is not None
+        self.gamma = gamma
+        self.prev_filter = prev_filter
+        self.rs = RunningStat(shape)
+        self.ret = np.zeros(shape)
+        self.clip = clip
+
+    def __call__(self, x, **kwargs):
+        x = self.prev_filter(x, **kwargs)
+        self.ret = self.ret * self.gamma + x
+        self.rs.push(self.ret)
+        x = x / (self.rs.std + 1e-8)
+        if self.clip:
+            x = np.clip(x, -self.clip, self.clip)
+        return x
+
+    def reset(self):
+        self.ret = np.zeros_like(self.ret)
+        self.prev_filter.reset()
+
+class ZFilter:
+    """
+    y = (x-mean)/std
+    using running estimates of mean,std
+    """
+    def __init__(self, prev_filter, shape, center=True, scale=True, clip=None):
+        assert shape is not None
+        self.center = center
+        self.scale = scale
+        self.clip = clip
+        self.rs = RunningStat(shape)
+        self.prev_filter = prev_filter
+
+    def __call__(self, x, **kwargs):
+        x = self.prev_filter(x, **kwargs)
+        self.rs.push(x)
+        if self.center:
+            x = x - self.rs.mean
+        if self.scale:
+            if self.center:
+                x = x / (self.rs.std + 1e-8)
+            else:
+                diff = x - self.rs.mean
+                diff = diff/(self.rs.std + 1e-8)
+                x = diff + self.rs.mean
+        if self.clip:
+            x = np.clip(x, -self.clip, self.clip)
+        return x
+
+    def reset(self):
+        self.prev_filter.reset()
+# A custom environment wrapper
 class CustomEnv(object):
     '''
     A wrapper around the OpenAI gym environment that adds support for the following:
@@ -121,11 +238,15 @@ class CustomEnv(object):
     - Size of action space
     Provides the same API (init, step, reset) as the OpenAI gym
     '''
-    def __init__(self, game, add_t_with_horizon=None):
+    def __init__(self, game):
         self.env = gym.make(game)
         self.env.seed(args.seed)
         self.env.action_space.seed(args.seed)
         self.env.observation_space.seed(args.seed)
+
+        # Adding references for obs and action space too (?)
+        self.action_space = self.env.action_space
+        self.observation_space = self.env.observation_space
 
         # respect the default timelimit
         if int(args.episode_length):
@@ -158,8 +279,6 @@ class CustomEnv(object):
         if args.norm_obs:
             self.state_filter = ZFilter(self.state_filter, shape=[self.num_features], \
                                             clip=args.obs_clip)
-        if add_t_with_horizon is not None:
-            self.state_filter = StateWithTime(self.state_filter, horizon=add_t_with_horizon)
 
         # Support for rewards normalization
         self.reward_filter = Identity()
@@ -176,9 +295,10 @@ class CustomEnv(object):
         start_state = self.env.reset()
         self.total_true_reward = 0.0
         self.counter = 0.0
-        self.state_filter.reset()
-        # MODIFIED: Also reset the reward filter
-        self.reward_filter.reset()
+        if not args.no_obs_reset:
+            self.state_filter.reset()
+        if not args.no_reward_reset:
+            self.reward_filter.reset()
         return self.state_filter(start_state, reset=True)
 
     def step(self, action):
@@ -197,6 +317,7 @@ input_shape, preprocess_obs_fn = preprocess_obs_space(env.env.observation_space,
 output_shape = preprocess_ac_space(env.env.action_space)
 
 # ALGO LOGIC: initialize agent here:
+# BACKUP: Clean up once the policy is fixed
 class Policy(nn.Module):
     def __init__(self):
         super(Policy, self).__init__()
@@ -222,6 +343,7 @@ class Policy(nn.Module):
         x = torch.tanh(self.fc2(x))
         action_mean = self.mean(x)
         action_logstd = self.logstd.expand_as(action_mean)
+
         return action_mean, action_logstd
 
     def get_action(self, x):
@@ -232,10 +354,77 @@ class Policy(nn.Module):
         return action, probs.log_prob(action).sum(1)
 
     def get_logproba(self, x, actions):
+        # Note: Converts actions to tensor
+        actions = preprocess_obs_fn( actions)
         action_mean, action_logstd = self.forward(x)
         action_std = torch.exp(action_logstd)
         dist = Normal(action_mean, action_std)
         return dist.log_prob(actions).sum(1)
+
+# EPS = 1e-8
+# LOG_STD_MAX = 2
+# LOG_STD_MIN = -20
+# class Policy(nn.Module):
+#     def __init__(self, squashing = True):
+#         super(Policy, self).__init__()
+#         self.squashing = True
+#
+#         self.fc1 = nn.Linear(input_shape, 120)
+#         self.fc2 = nn.Linear(120, 84)
+#         self.mean = nn.Linear(84, output_shape)
+#         self.logstd = nn.Linear(84, output_shape)
+#
+#         if args.weights_init == "orthogonal":
+#             torch.nn.init.orthogonal_( self.fc1.weight)
+#             torch.nn.init.orthogonal_( self.fc2.weight)
+#             torch.nn.init.orthogonal_( self.mean.weight)
+#             torch.nn.init.orthogonal_( self.logstd.weight)
+#         elif args.weights_init == "xavier":
+#             torch.nn.init.xavier_uniform_( self.fc1.weight)
+#             torch.nn.init.xavier_uniform_( self.fc2.weight)
+#             torch.nn.init.xavier_uniform_( self.mean.weight)
+#             torch.nn.init.xavier_uniform_( self.logstd.weight)
+#         else:
+#             raise NotImplementedError
+#
+#     def forward(self, x):
+#         x = preprocess_obs_fn(x)
+#         x = torch.tanh(self.fc1(x))
+#         x = torch.tanh(self.fc2(x))
+#         action_mean = self.mean(x)
+#         action_logstd = self.logstd(x)
+#         action_logstd = torch.tanh( self.logstd(x))
+#         log_std = LOG_STD_MIN + 0.5 * (LOG_STD_MAX - LOG_STD_MIN) * (action_logstd + 1) # From SpinUp
+#
+#         return action_mean, action_logstd
+#
+#     def get_action(self, x):
+#         mean, logstd = self.forward(x)
+#         std = logstd.exp()
+#
+#         probs = Normal(mean, std)
+#         action = probs.rsample() # Would sample() be more efficient ? Since no backprop through actions ...
+#         logprob = probs.log_prob(action)
+#
+#         if self.squashing:
+#             action = torch.tanh( action)
+#             logprob -= torch.log( 1. - action.pow(2) + EPS) # SpinUp Version, also paper
+#
+#         return action, logprob.sum(1)
+#
+#     def get_logproba(self, x, actions):
+#         # Note: Converts actions to tensor
+#         actions = preprocess_obs_fn( actions)
+#         action_mean, action_logstd = self.forward(x)
+#         action_std = torch.exp(action_logstd)
+#         dist = Normal(action_mean, action_std)
+#         logproba = dist.log_prob(actions)
+#
+#         if self.squashing:
+#             # Actions are expected to be squashed anyway
+#             logproba -= torch.log( 1. - actions.pow(2) + EPS) # SpinUp Version, also paper
+#
+#         return logproba.sum(1)
 
 class Value(nn.Module):
     def __init__(self):
@@ -273,199 +462,108 @@ if args.anneal_lr:
 
 loss_fn = nn.MSELoss()
 
-# MODIFIED: Buffer for Epoch data
-import collections
-class ReplayBuffer():
-    def __init__(self, buffer_limit):
-        self.buffer = collections.deque(maxlen=buffer_limit)
-
-    def put(self, transition):
-        self.buffer.append(transition)
-
-    def put_episode( self, episode_data):
-        for obs, act, logp, ret, adv in episode_data:
-            self.put((obs, act, logp, ret, adv))
-
-    def sample(self, n):
-        mini_batch = random.sample(self.buffer, n)
-        obs_lst, act_lst, logp_lst, ret_lst, adv_lst = [], [], [], [], []
-
-        for transition in mini_batch:
-            obs, act, logp, ret, adv = transition
-            obs_lst.append(obs)
-            act_lst.append(act)
-            logp_lst.append(logp)
-            ret_lst.append(ret)
-            adv_lst.append(adv)
-
-        # NOTE: Do not Tensor preprocess observations as it is done in the policy / values function
-        return obs_lst, \
-               torch.tensor( act_lst).to(device), \
-               torch.tensor(logp_lst).to(device), \
-               torch.tensor(ret_lst).to(device), \
-               torch.tensor(adv_lst).to(device)
-
-    def size(self):
-        return len(self.buffer)
-
-    def clear(self):
-        self.buffer.clear()
-
-buffer = ReplayBuffer(args.episode_length)
-
+# MAJOR TODO In the following section, replace the data holders with tensors directly to reduce call to torch.Tensor().to(device) and alike
 # TRY NOT TO MODIFY: start the game
 global_step = 0
-
-# MODIFIED: GAE Discount computing following RLLab
-import scipy.signal
-def discount_cumsum(x, discount):
-    """
-    magic from rllab for computing discounted cumulative sums of vectors.
-
-    input:
-        vector x,
-        [x0,
-         x1,
-         x2]
-
-    output:
-        [x0 + discount * x1 + discount^2 * x2,
-         x1 + discount * x2,
-         x2]
-    """
-    return scipy.signal.lfilter([1], [1, float(-discount)], x[::-1], axis=0)[::-1]
-
-# MODIFIED: Helper function for sampling
-# ARGUMENT: Makes the training loop cleaner and easy to follow along the algorithm
-# in the paper (TODO: remove this if [un]convinced)
-def sample():
-    global global_step
-
-    obs = env.reset()
-    done = False
-
-    # Temporary storage for episode data. Helps compute the GAE and Returns "lazyly"
-    # (wihtout bothering about indices of the buffer)
-    ep_obs, ep_acts, ep_logps, ep_rews, ep_vals = [], [], [], [], []
-
-    # Keeping track of some sampling stats for
-    ep_count = 0
-    ep_lengths = []
-    ep_Returns = [] # Keeps track of the undiscounted return for each sampled episode
-
-    for step in range( args.episode_length):
-        global_step += 1
-        with torch.no_grad():
-            action, action_logp = pg.get_action( [obs])
-            action = action.numpy()[0]
-            action_logp = action_logp.numpy()[0]
-
-            v_obs =  vf.forward( [obs]).numpy()[0][0]
-
-        next_obs, rew, done, _ = env.step( action)
-
-        ep_obs.append( obs)
-        ep_acts.append( action)
-        ep_rews.append( rew)
-        ep_logps.append( action_logp)
-        ep_vals.append( v_obs)
-
-        obs = next_obs
-
-        if done:
-            # Updateing sampling stats
-            ep_count += 1
-            ep_lengths.append( step)
-            ep_Returns.append( np.sum( ep_rews))
-
-            ep_returns = discount_cumsum( ep_rews, args.gamma)
-
-            # Quick Hack GAE computation, which require np.array data
-            ep_rews = np.array( ep_rews)
-            ep_vals = np.array( ep_vals)
-            deltas = ep_rews[:-1] + args.gamma * ep_vals[1:] - ep_vals[:-1]
-            ep_vals = discount_cumsum(deltas, args.gamma * args.gae_lambda)
-
-            buffer.put_episode( zip( ep_obs, ep_acts, ep_logps, ep_returns, ep_vals))
-
-            # Cleanup the tmp holders for fresh episode data
-            ep_obs, ep_acts, ep_logps, ep_rews, ep_vals = [], [], [], [], []
-
-            obs = env.reset()
-            done = False
-
-        # Reached sampling limit, will cut the episode and use the value function
-        # to bootstrap, as per OpenAI SpinUp
-        if step == (args.episode_length - 1) and len(ep_obs) > 0:
-            # Updateing sampling stats, although they become "unexact"
-            ep_count += 1
-            ep_lengths.append( step)
-            ep_Returns.append( np.sum( ep_rews))
-
-            # NOTE: Last condition: if the episode finished right at the sampling
-            # limit, this will be skipped anyway
-            with torch.no_grad():
-                v_obs = vf.forward( [obs]).numpy()[0][0]
-
-            ep_rews[-1] = v_obs # Boostrapping reward
-
-            ep_returns = discount_cumsum( ep_rews, args.gamma)
-
-            # Quick Hack GAE computation, which require np.array data
-            ep_rews = np.array( ep_rews)
-            ep_vals = np.array( ep_vals)
-            deltas = ep_rews[:-1] + args.gamma * ep_vals[1:] - ep_vals[:-1]
-            ep_vals = discount_cumsum(deltas, args.gamma * args.gae_lambda)
-
-            buffer.put_episode( zip( ep_obs, ep_acts, ep_logps, ep_returns, ep_vals))
-
-    sampling_stats = {
-        "ep_count": ep_count,
-        "train_episode_length": np.mean( ep_lengths),
-        "train_episode_return": np.mean( ep_Returns)
-    }
-
-    return sampling_stats
-
 while global_step < args.total_timesteps:
-    # Will sample args.episode_length transitions, which we consider as the length of an epoch
-    sampling_stats = sample()
+    next_obs = np.array(env.reset())
 
-    # Sampling all the data in the buffer
-    obs_batch, act_batch, old_logp_batch, return_batch, adv_batch = buffer.sample( buffer.size())
+    # Storage for epoch data
+    observations = np.empty((args.episode_length,) + env.observation_space.shape) # NOTE: Change to observations to avoid confusing with single obs
+
+    actions = np.empty((args.episode_length,) + env.action_space.shape)
+    logprobs = np.empty((args.episode_length,))
+
+    rewards = np.empty((args.episode_length,))
+    returns = np.empty((args.episode_length,))
+
+    dones = np.zeros((args.episode_length,))
+    values = torch.zeros((args.episode_length,)).to(device)
+
+    episode_lengths = [-1]
+
+    # ALGO LOGIC: put other storage logic here
+    # Note: Other stats
+    entropys = torch.zeros((args.episode_length,), device=device)
+
+    # TRY NOT TO MODIFY: prepare the execution of the game.
+    for step in range(args.episode_length):
+        global_step += 1
+        observations[step] = next_obs.copy()
+
+        # ALGO LOGIC: put action logic here
+        values[step] = vf.forward(observations[step:step+1]) # Question: Why :step+1 again ?
+        with torch.no_grad():
+            action, logproba = pg.get_action(observations[step:step+1])
+
+        # TODO: More elegant way ?
+        if device == "cuda":
+            actions[step] = action.data.cpu().numpy()[0]
+            logprobs[step] = logproba.data.cpu().numpy()[0]
+        elif device == "cpu":
+            actions[step] = action.data.numpy()[0]
+            logprobs[step] = logproba.data.numpy()[0]
+
+        # TODO: Add tanh based squashing and action scalling
+        clipped_action = np.clip(action.tolist(), env.action_space.low, env.action_space.high)[0]
+
+        # TRY NOT TO MODIFY: execute the game and log data.
+        next_obs, rewards[step], dones[step], _ = env.step(clipped_action)
+        next_obs = np.array(next_obs)
+
+        if dones[step]:
+            # Calculating the discounted return
+            returns[step] = rewards[step]
+            for t in reversed(range(episode_lengths[-1], step)):
+                returns[t] = rewards[t] + args.gamma * returns[t+1] * (1-dones[t])
+            if not args.notb:
+                writer.add_scalar("charts/episode_reward", rewards[(episode_lengths[-1]+1):step].sum(), global_step)
+            episode_lengths += [step]
+            next_obs = np.array(env.reset())
+
+        advantages = torch.Tensor( returns - values.detach().cpu().numpy()).to(device)
 
     # Optimizaing policy network
+    # NOTE: We use full "buffer" data variant
+    # First Tensorize all that is need to be so
+    logprobs = torch.Tensor(logprobs).to(device) # Called 2 times: during policy update and KL bound checked
+    returns = torch.Tensor(returns).to(device) # Called 1 time when updating the values
+
     for i_epoch_pi in range( args.update_epochs):
-        # Resample logps
-        logp_a = pg.get_logproba( obs_batch, act_batch)
-        ratio = (logp_a - old_logp_batch).exp()
+        # TODO: Resolve that seg fault error again
+        newlogproba = pg.get_logproba( observations, actions).to(device)
+        ratio = (newlogproba - logprobs).exp()
 
         # Policy loss as in OpenAI SpinUp
-        clip_adv = torch.where( adv_batch > 0,
-                                (1.+args.clip_coef) * adv_batch,
-                                (1.-args.clip_coef) * adv_batch)
+        clip_adv = torch.where( advantages > 0,
+                                (1.+args.clip_coef) * advantages,
+                                (1.-args.clip_coef) * advantages).to(device)
 
-        policy_loss = - torch.min( ratio * adv_batch, clip_adv).mean()
+        policy_loss = - torch.min( ratio * advantages, advantages).mean()
 
         pg_optimizer.zero_grad()
-        policy_loss.backward(retain_graph=True)
-        nn.utils.clip_grad_norm_(pg.parameters(), args.max_grad_norm)
+        policy_loss.backward()
+        # policy_loss.backward(retain_graph=True)
+        # nn.utils.clip_grad_norm_(pg.parameters(), args.max_grad_norm)
         pg_optimizer.step()
 
         # Note: This will stop updating the policy once the KL has been breached
         if args.kl:
-            approx_kl = (old_logp_batch - logp_a).mean()
+            approx_kl = (logprobs - newlogproba).mean()
+            # TODO: Add KL logging and Stop iteration logging in case we are in debug mode
             if approx_kl > args.target_kl:
                 break
 
     # Optimizing value network
     for i_epoch in range( args.update_epochs):
-        v_obs_batch = vf.forward( obs_batch).view(-1)
-        v_loss = loss_fn( return_batch, v_obs_batch)
+        # Resample values
+        values = vf.forward(observations).view(-1)
+        v_loss = loss_fn( returns, values)
 
         v_optimizer.zero_grad()
-        v_loss.backward(retain_graph=True)
-        nn.utils.clip_grad_norm_(vf.parameters(), args.max_grad_norm)
+        v_loss.backward()
+        # v_loss.backward(retain_graph=True)
+        # nn.utils.clip_grad_norm_(vf.parameters(), args.max_grad_norm)
         v_optimizer.step()
 
     # Annealing the rate if instructed to do so.
@@ -473,21 +571,20 @@ while global_step < args.total_timesteps:
         pg_lr_scheduler.step()
         vf_lr_scheduler.step()
 
-    # TRY NOT TO MODIFY: record rewards for plotting purposes
-    writer.add_scalar("charts/episode_reward",
-        sampling_stats["train_episode_return"], global_step)
-    writer.add_scalar("losses/value_loss", v_loss.item(), global_step)
-    writer.add_scalar("losses/policy_loss", policy_loss.item(), global_step)
-    # MODIFIED: After how many iters did the policy udate stop ?
-    if args.kl:
-        writer.add_scalar("debug/pg_stop_iter", i_epoch_pi, global_step)
-    # MODIFIED: Logs some other sampling statitics
-    writer.add_scalar("info/episode_count", sampling_stats["ep_count"], global_step)
-    writer.add_scalar("info/mean_episode_length", sampling_stats["ep_count"], global_step)
+    if not args.notb:
+        # TRY NOT TO MODIFY: record rewards for plotting purposes
+        writer.add_scalar("losses/value_loss", v_loss.item(), global_step)
+        writer.add_scalar("losses/policy_loss", policy_loss.item(), global_step)
+        # MODIFIED: After how many iters did the policy udate stop ?
+        if args.kl:
+            writer.add_scalar("debug/pg_stop_iter", i_epoch_pi, global_step)
+        # MODIFIED: Logs some other sampling statitics
+        # writer.add_scalar("info/episode_count", sampling_stats["ep_count"], global_step)
+        # writer.add_scalar("info/mean_episode_length", sampling_stats["ep_count"], global_step)
 
     # TODO: Silcence this
-    print( "Step %d -- PLoss: %.6f -- VLoss: %.6f -- Train Mean Return: %.6f" % (global_step,
-        policy_loss.item(), v_loss.item(), sampling_stats["train_episode_return"]))
+    print( "Step %d -- PLoss: %.6f -- VLoss: %.6f" % (global_step,
+        policy_loss.item(), v_loss.item()))
 
 env.close()
 writer.close()
