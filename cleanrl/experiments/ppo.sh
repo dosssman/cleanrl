@@ -1209,49 +1209,82 @@ export CUDA_VISIBLE_DEVICES=0
 
 # Costa's Return Normalization experiments
 # for gym_id  in HopperBulletEnv-v0 HumanoidBulletEnv-v0 ; do
-for gym_id in Walker2DBulletEnv-v0 HalfCheetahBulletEnv-v0 HopperBulletEnv-v0 HumanoidBulletEnv-v0; do
-	for seed in {1..3}; do
-		# # No return filter reset
-		# (sleep 0.3 && nohup python ppo_return_norm_reset.py \
-		# 	--prod-mode True \
-		# 	--wandb-project-name cleanrl.ppo_return_norm \
-		# 	--wandb-entity dosssman \
-		# 	--total-timesteps 1000000 \
-		# 	--gym-id $gym_id \
-		# 	--seed $seed
-		# ) >& /dev/null &
-		# # Return Filter resetted
-		# (sleep 0.3 && nohup python ppo_return_norm_reset.py \
-		# 	--prod-mode True \
-		# 	--wandb-project-name cleanrl.ppo_return_norm \
-		# 	--wandb-entity dosssman \
-		# 	--total-timesteps 1000000 \
-		# 	--gym-id $gym_id \
-		# 	--seed $seed \
-		# 	--return-filter-reset True
-		# ) >& /dev/null &
-    #
+# for gym_id in Walker2DBulletEnv-v0 HalfCheetahBulletEnv-v0 HopperBulletEnv-v0 HumanoidBulletEnv-v0; do
+# 	for seed in {1..3}; do
+# 		# # No return filter reset
+# 		# (sleep 0.3 && nohup python ppo_return_norm_reset.py \
+# 		# 	--prod-mode True \
+# 		# 	--wandb-project-name cleanrl.ppo_return_norm \
+# 		# 	--wandb-entity dosssman \
+# 		# 	--total-timesteps 1000000 \
+# 		# 	--gym-id $gym_id \
+# 		# 	--seed $seed
+# 		# ) >& /dev/null &
+# 		# # Return Filter resetted
+# 		# (sleep 0.3 && nohup python ppo_return_norm_reset.py \
+# 		# 	--prod-mode True \
+# 		# 	--wandb-project-name cleanrl.ppo_return_norm \
+# 		# 	--wandb-entity dosssman \
+# 		# 	--total-timesteps 1000000 \
+# 		# 	--gym-id $gym_id \
+# 		# 	--seed $seed \
+# 		# 	--return-filter-reset True
+# 		# ) >& /dev/null &
+#     #
+#
+#     #Adding custom baslines
+#  		(sleep 0.3 && nohup python impl_matters/ppo_continuous_gae.py
+#       --prod-mode True \
+#       --wandb-project-name cleanrl.ppo_return_norm \
+#       --wandb-entity dosssman \
+#       --total-timesteps 1000000 \
+#       --gym-id $gym_id \
+#       --seed $seed \
+#       --kl
+# 		) >& /dev/null &
+#
+#     (sleep 0.3 && nohup python impl_matters/ppo_continuous_gae.py
+#       --prod-mode True \
+#       --wandb-project-name cleanrl.ppo_return_norm \
+#       --wandb-entity dosssman \
+#       --total-timesteps 1000000 \
+#       --gym-id $gym_id \
+#       --seed $seed \
+#       --norm-returns \
+#       --kl
+#     ) >& /dev/null &
+# 	done
+# done
 
-    #Adding custom baslines
- 		(sleep 0.3 && nohup python impl_matters/ppo_continuous_gae.py
-      --prod-mode True \
-      --wandb-project-name cleanrl.ppo_return_norm \
-      --wandb-entity dosssman \
-      --total-timesteps 1000000 \
-      --gym-id $gym_id \
-      --seed $seed \
-      --kl
-		) >& /dev/null &
-
-    (sleep 0.3 && nohup python impl_matters/ppo_continuous_gae.py
-      --prod-mode True \
-      --wandb-project-name cleanrl.ppo_return_norm \
-      --wandb-entity dosssman \
-      --total-timesteps 1000000 \
-      --gym-id $gym_id \
-      --seed $seed \
-      --norm-returns \
-      --kl
-    ) >& /dev/null &
-	done
-done
+# PPO Sqash Policy VS Non Sqash policy
+# for gym_id in HopperBulletEnv-v0 HumanoidBulletEnv-v0 Walker2DBulletEnv-v0 HalfCheetahBulletEnv-v0 AntBulletEnv-v0; do # Rigel
+#   for seed in {1..3}; do
+#     # (sleep 0.3 && nohup python ppo_continuous_gae_2.py \
+#     #   --prod-mode True \
+#     #   --wandb-project-name cleanrl.ppo_gae.sqash_or_not \
+#     #   --wandb-entity dosssman \
+#     #   --total-timesteps 1000000 \
+#     #   --gym-id $gym_id \
+#     #   --seed $seed
+#     # ) >& /dev/null &
+#     #
+#     # (sleep 0.3 && nohup python ppo_continuous_gae_2_squashing.py \
+#     #   --prod-mode True \
+#     #   --wandb-project-name cleanrl.ppo_gae.sqash_or_not \
+#     #   --wandb-entity dosssman \
+#     #   --total-timesteps 1000000 \
+#     #   --gym-id $gym_id \
+#     #   --seed $seed
+#     # ) >& /dev/null &
+#
+#     # Squashing version with "static logstds"
+#   #   (sleep 0.3 && nohup python ppo_continuous_gae_2_squashing_fixedlogstd.py \
+#   #     --prod-mode True \
+#   #     --wandb-project-name cleanrl.ppo_gae.sqash_or_not \
+#   #     --wandb-entity dosssman \
+#   #     --total-timesteps 1000000 \
+#   #     --gym-id $gym_id \
+#   #     --seed $seed
+#   #   ) >& /dev/null &
+#   done
+# done

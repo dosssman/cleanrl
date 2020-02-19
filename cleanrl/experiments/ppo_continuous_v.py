@@ -64,8 +64,8 @@ if __name__ == "__main__":
     parser.add_argument('--target-kl', type=float, default=0.015)
     parser.add_argument('--value-lr', type=float, default=1e-3)
     parser.add_argument('--policy-lr', type=float, default=3e-4)
-    parser.add_argument('--nokl', action='store_true',
-                help='If toggled, the policy updates will not be early stopped')
+    parser.add_argument('--kl', action='store_true',
+                        help='If toggled, the policy updates will be early stopped w.r.t target-kl')
 
     args = parser.parse_args()
     if not args.seed:
@@ -314,7 +314,7 @@ while global_step < args.total_timesteps:
         policy_loss.backward()
         pg_optimizer.step()
 
-        if not args.nokl:
+        if args.kl:
             approx_kl = (old_logp_batch - logp_a).mean()
             if approx_kl > args.target_kl:
                 break
@@ -334,7 +334,7 @@ while global_step < args.total_timesteps:
             sampling_stats["train_episode_return"], global_step)
         writer.add_scalar("losses/value_loss", v_loss.item(), global_step)
         # MODIFIED: After how many iters did the policy udate stop ?
-        if not args.nokl:
+        if args.kl:
             writer.add_scalar("debug/pg_stop_iter", i_epoch_pi, global_step)
         writer.add_scalar("debug/episode_count", sampling_stats["ep_count"], global_step)
         writer.add_scalar("debug/mean_episode_length", sampling_stats["ep_count"], global_step)

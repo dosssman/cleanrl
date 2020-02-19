@@ -300,7 +300,7 @@ def sample():
             ep_rews = np.array( ep_rews)
             ep_vals = np.array( ep_vals)
             deltas = ep_rews[:-1] + args.gamma * ep_vals[1:] - ep_vals[:-1]
-            ep_vals = discount_cumsum(deltas, args.gamma * args.lam)
+            ep_vals = discount_cumsum(deltas, args.gamma * args.gae_lambda)
 
             buffer.put_episode( zip( ep_obs, ep_acts, ep_logps, ep_returns, ep_vals))
 
@@ -328,7 +328,7 @@ def sample():
             ep_rews = np.array( ep_rews)
             ep_vals = np.array( ep_vals)
             deltas = ep_rews[:-1] + args.gamma * ep_vals[1:] - ep_vals[:-1]
-            ep_vals = discount_cumsum(deltas, args.gamma * args.lam)
+            ep_vals = discount_cumsum(deltas, args.gamma * args.gae_lambda)
 
             buffer.put_episode( zip( ep_obs, ep_acts, ep_logps, ep_returns, ep_vals))
 
@@ -364,7 +364,7 @@ while global_step < args.total_timesteps:
         policy_loss.backward()
         pg_optimizer.step()
 
-        if not args.nokl:
+        if args.kl:
             approx_kl = (old_logp_batch - logp_a).mean()
             if approx_kl > args.target_kl:
                 break
@@ -384,7 +384,7 @@ while global_step < args.total_timesteps:
         writer.add_scalar("losses/value_loss", v_loss.item(), global_step)
         writer.add_scalar("losses/policy_loss", policy_loss.item(), global_step)
         # MODIFIED: After how many iters did the policy udate stop ?
-        if not args.nokl:
+        if args.kl:
             writer.add_scalar("debug/pg_stop_iter", i_epoch_pi, global_step)
         writer.add_scalar("debug/episode_count", sampling_stats["ep_count"], global_step)
         writer.add_scalar("debug/mean_episode_length", sampling_stats["ep_count"], global_step)
