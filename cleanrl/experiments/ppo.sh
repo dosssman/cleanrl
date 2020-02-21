@@ -1,7 +1,7 @@
 #!/bin/bash
 NUM_CORES=$(nproc --all)
 export MKL_NUM_THREADS=$NUM_CORES OMP_NUM_THREADS=$NUM_CORES
-export CUDA_VISIBLE_DEVICES=0
+# export CUDA_VISIBLE_DEVICES=0
 
 # Investigating effect of the KL break
 # for targetkl in 0.015 0.02 0.035 0.04 0.05 0.064 0.075 0.08 0.09 0.1 0.2 0.3 0.4 0.5 0.6 0.7 0.8 0.9 1.0; do
