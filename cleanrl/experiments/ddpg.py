@@ -14,9 +14,7 @@ from gym.spaces import Discrete, Box, MultiBinary, MultiDiscrete, Space
 import time
 import random
 import os
-
-# MODIFIED: Import buffer with random batch sampling support
-from cleanrl.buffers import SimpleReplayBuffer
+import collections
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='DDPG')
@@ -35,10 +33,10 @@ if __name__ == "__main__":
                         help='total timesteps of the experiments')
     parser.add_argument('--torch-deterministic', type=bool, default=True,
                         help='whether to set `torch.backends.cudnn.deterministic=True`')
-    parser.add_argument('--cuda', type=bool, default=True,
-                        help='whether to use CUDA whenever possible')
-    parser.add_argument('--prod-mode', type=bool, default=False,
-                        help='run the script in production mode and use wandb to log outputs')
+    parser.add_argument('--no-cuda', action='store_true', default=False,
+                       help='if toggled, cuda will not be enabled by default')
+    parser.add_argument('--prod-mode', action='store_true', default=False,
+                       help='run the script in production mode and use wandb to log outputs')
     parser.add_argument('--wandb-project-name', type=str, default="cleanRL",
                         help="the wandb's project name")
     parser.add_argument('--wandb-entity', type=str, default=None,
@@ -64,10 +62,15 @@ if __name__ == "__main__":
     parser.add_argument('--noise-std', type=float, default=0.1,
                         help="standard deviation of the Normal dist for action noise sampling")
 
-    # Neural Network Parametrization
-    parser.add_argument('--hidden-sizes', nargs='+', type=int, default=[256,128,80])
+    # MODIFIED: Include deterministic evaluation of the agent
+    parser.add_argument('--eval', action="store_true",
+                        help='If passed, the script will evaluate the agent without the noise')
+    parser.add_argument('--eval-interval', type=int, default=20,
+                        help='Defines every X episodes the agent is evaluated fully determinisitically')
+    parser.add_argument('--eval-episodes', type=int, default=3,
+                        help='How many episode do we evaluate the agent over ?')
 
-    # TODO: Remove this trash latter
+    # TODO: Remove this trash once everything works as supposed
     parser.add_argument('--notb', action='store_true',
         help='No Tensorboard logging')
 
@@ -76,7 +79,7 @@ if __name__ == "__main__":
         args.seed = int(time.time())
 
 # TRY NOT TO MODIFY: setup the environment
-device = torch.device('cuda' if torch.cuda.is_available() and args.cuda else 'cpu')
+device = torch.device('cuda' if torch.cuda.is_available() and not args.no_cuda else 'cpu')
 env = gym.make(args.gym_id)
 random.seed(args.seed)
 np.random.seed(args.seed)
@@ -118,51 +121,38 @@ if args.noise_type == "ou":
 
         def __repr__(self):
             return 'OrnsteinUhlenbeckActionNoise(mu={}, sigma={})'.format(self.mu, self.sigma)
-    ou_act_noise = OrnsteinUhlenbeckActionNoise( mu=np.zeros(output_shape), sigma=float(args.noise_std) * np.ones(output_shape))
+    ou_act_noise = OrnsteinUhlenbeckActionNoise(mu=np.zeros(output_shape), sigma=float(args.noise_std) * np.ones(output_shape))
 
 # Determinsitic policy
 class Policy(nn.Module):
-    def __init__(self, squashing = True):
+    def __init__(self):
         # Custom
         super().__init__()
-        self.layers = nn.ModuleList()
-        self.squashing = squashing
+        self.fc1 = nn.Linear(input_shape, 120)
+        self.fc2 = nn.Linear(120, 84)
+        self.fc3 = nn.Linear(84, output_shape)
 
-        current_dim = input_shape
-        for hsize in args.hidden_sizes:
-            self.layers.append(nn.Linear(current_dim, hsize))
-            current_dim = hsize
-
-        # TODO: Add squashing like mechanism for action bound inforcing
-        self.fc_mu = nn.Linear(args.hidden_sizes[-1], output_shape)
-        self.tanh_mu = nn.Tanh()
+        self.tanh_mu = nn.Tanh() # To squash actions between -1.,1.
 
     def forward(self, x):
-        # # Workaround Seg. Fault when passing tensor to Q Function
-        if not isinstance(x, torch.Tensor):
-            x = preprocess_obs_fn(x)
+        x = preprocess_obs_fn(x)
 
-        for layer in self.layers:
-            x = F.relu(layer(x))
+        x = F.relu(self.fc1(x))
+        x = F.relu(self.fc2(x))
+        x = self.fc3(x)
+        x = self.tanh_mu(x)
 
-        mus = self.fc_mu(x)
-
-        return self.tanh_mu( mus)
+        return x
 
 class QValue(nn.Module):
     def __init__(self):
         super().__init__()
-        self.layers = nn.ModuleList()
-
-        current_dim = input_shape + output_shape
-        for hsize in args.hidden_sizes:
-            self.layers.append(nn.Linear(current_dim, hsize))
-            current_dim = hsize
-
-        self.layers.append(nn.Linear(args.hidden_sizes[-1], 1))
+        self.fc1 = nn.Linear(input_shape + output_shape, 120)
+        self.fc2 = nn.Linear(120, 84)
+        self.fc3 = nn.Linear(84, 1)
 
     def forward(self, x, a):
-        # Workaround Seg. Fault when passing tensor to Q Function
+        # GPU Seg. fault bug workaround
         if not isinstance(x, torch.Tensor):
             x = preprocess_obs_fn(x)
 
@@ -171,13 +161,37 @@ class QValue(nn.Module):
 
         x = torch.cat([x,a], 1)
 
-        for layer in self.layers[:-1]:
-            x = F.relu(layer(x))
+        x = F.relu(self.fc1(x))
+        x = F.relu(self.fc2(x))
+        x = self.fc3(x)
 
-        return self.layers[-1](x)
+        return x
 
-buffer = SimpleReplayBuffer(env.observation_space, env.action_space, args.buffer_size, args.batch_size)
-buffer.set_seed(args.seed)
+# modified from https://github.com/seungeunrho/minimalRL/blob/master/dqn.py#
+class ReplayBuffer():
+    def __init__(self, buffer_limit):
+        self.buffer = collections.deque(maxlen=buffer_limit)
+
+    def put(self, transition):
+        self.buffer.append(transition)
+
+    def sample(self, n):
+        mini_batch = random.sample(self.buffer, n)
+        s_lst, a_lst, r_lst, s_prime_lst, done_mask_lst = [], [], [], [], []
+
+        for transition in mini_batch:
+            s, a, r, s_prime, done_mask = transition
+            s_lst.append(s)
+            a_lst.append(a)
+            r_lst.append(r)
+            s_prime_lst.append(s_prime)
+            done_mask_lst.append(done_mask)
+
+        return np.array(s_lst), np.array(a_lst), \
+               np.array(r_lst), np.array(s_prime_lst), \
+               np.array(done_mask_lst)
+
+buffer = ReplayBuffer(args.buffer_size)
 
 # Defining agent's policy and corresponding target
 pg = Policy().to(device)
@@ -204,34 +218,6 @@ p_optimizer = optim.Adam(list(pg.parameters()),
 
 mse_loss_fn = nn.MSELoss()
 
-# Helper function to evaluate agent determinisitically
-def test_agent(env, policy, eval_episodes=1):
-    returns = []
-    lengths = []
-
-    for eval_ep in range(eval_episodes):
-        ret = 0.
-        done = False
-        t = 0
-
-        obs = np.array(env.reset())
-
-        while not done:
-            with torch.no_grad():
-                # TODO: Revised sampling for determinsitc policy
-                action = pg.forward([obs]).tolist()[0]
-
-            obs, rew, done, _ = env.step(action)
-            obs = np.array(obs)
-            ret += rew
-            t += 1
-        # TODO: Break if max episode length is breached
-
-        returns.append(ret)
-        lengths.append(t)
-
-    return returns, lengths
-
 # TRY NOT TO MODIFY: start the game
 experiment_name = f"{args.gym_id}__{args.exp_name}__{args.seed}__{int(time.time())}"
 
@@ -246,10 +232,10 @@ if args.prod_mode:
     writer = SummaryWriter(f"/tmp/{experiment_name}")
     wandb.save(os.path.abspath(__file__))
 
+
 global_step = 0
 global_iter = 0
 global_episode = 0
-
 while global_step < args.total_timesteps:
     next_obs = np.array(env.reset())
     done = False
@@ -279,18 +265,11 @@ while global_step < args.total_timesteps:
                     noise = args.noise_std * np.random.randn(1)[0]
                     for param in pg.parameters():
                         param += noise
-                        # # DEBUG:
-                        # print( "# Noise: ", noise)
-                        # print( "# Param before noising:")
-                        # print( param)
-                        # print( "# Patam after noising:")
-                        # print( param + noise)
-                        # input()
 
                     action = pg.forward([obs]).tolist()[0]
                 else:
                     raise NotImplementedError
-                action = np.clip( action, -act_limit, act_limit)
+                action = np.clip(action, -act_limit, act_limit)
         else:
             action = env.action_space.sample()
 
@@ -298,7 +277,7 @@ while global_step < args.total_timesteps:
         next_obs, rew, done, _ = env.step(action)
         next_obs = np.array(next_obs)
 
-        buffer.add_transition(obs, action, rew, done, next_obs)
+        buffer.put((obs, action, rew, next_obs, done))
 
         # Keeping track of train episode returns
         train_episode_return += rew
@@ -307,58 +286,84 @@ while global_step < args.total_timesteps:
         if done:
             # ALGO LOGIC: training.
             if global_step > args.start_steps:
-                for iter in range( train_episode_length):
+                for iter in range(train_episode_length): # As much updates as there was steps in the episode
                     global_iter += 1
 
                     observation_batch, action_batch, reward_batch, \
-                    terminals_batch, next_observation_batch = buffer.sample(args.batch_size)
+                        next_observation_batch, terminals_batch = buffer.sample(args.batch_size)
 
                     # Q function losses and update
                     with torch.no_grad():
-                        next_mus = pg_target.forward( next_observation_batch)
+                        next_mus = pg_target.forward(next_observation_batch)
                         q_backup = torch.Tensor(reward_batch).to(device) + \
                             (1 - torch.Tensor(terminals_batch).to(device)) * args.gamma * \
-                            qf_target.forward( next_observation_batch, next_mus).view(-1)
+                            qf_target.forward(next_observation_batch, next_mus).view(-1)
 
-                    q_values = qf.forward( observation_batch, action_batch).view(-1)
-                    q_loss = mse_loss_fn( q_values, q_backup)
+                    q_values = qf.forward(observation_batch, action_batch).view(-1)
+                    q_loss = mse_loss_fn(q_values, q_backup)
 
                     q_optimizer.zero_grad()
                     q_loss.backward()
                     q_optimizer.step()
 
                     # Policy loss and update
-                    resampled_mus = pg.forward( observation_batch)
-                    q_mus = qf.forward( observation_batch, resampled_mus).view(-1)
+                    resampled_mus = pg.forward(observation_batch)
+                    q_mus = qf.forward(observation_batch, resampled_mus).view(-1)
                     policy_loss = - q_mus.mean()
 
                     p_optimizer.zero_grad()
                     policy_loss.backward()
                     p_optimizer.step()
 
+                    # Updates the target network
                     if global_iter > 0 and global_iter % args.target_update_interval == 0:
                         update_target_value(qf, qf_target, args.tau)
                         update_target_value(pg, pg_target, args.tau)
 
-                    if global_iter > 0 and global_iter % args.episode_length == 0:
-                        # Evaulating in deterministic mode after one episode
-                        eval_returns, eval_ep_lengths = test_agent(env, pg, 3)
+                    if global_iter > 0 and global_iter % 1000 == 0:
+                        print("Iter %d: PLoss: %.6f -- QLoss: %.6f -- Train Return: %.6f"
+                            % (global_iter, policy_loss.item(), q_loss.item(), train_episode_return))
+
+                if not args.notb:
+                    # Logging training stats
+                    writer.add_scalar("charts/episode_reward", train_episode_return, global_iter)
+                    writer.add_scalar("charts/episode_length", train_episode_length, global_iter)
+
+                    writer.add_scalar("train/q_loss", q_loss.item(), global_iter)
+                    writer.add_scalar("train/policy_loss", policy_loss.item(), global_iter)
+
+                    # Deterministic evaluation loop
+                    if args.eval and global_episode % args.eval_interval == 0:
+
+                        eval_returns = []
+                        eval_ep_lengths = []
+
+                        for eval_ep in range(args.eval_episodes):
+                            ret = 0.
+                            done = False
+                            t = 0
+
+                            obs = np.array(env.reset())
+
+                            while not done:
+                                with torch.no_grad():
+                                    # TODO: Revised sampling for determinsitc policy
+                                    action = pg.forward([obs]).tolist()[0]
+
+                                obs, rew, done, _ = env.step(action)
+                                obs = np.array(obs)
+                                ret += rew
+                                t += 1
+                            # TODO: Break if max episode length is breached
+
+                            eval_returns.append(ret)
+                            eval_ep_lengths.append(t)
+
                         eval_return_mean = np.mean(eval_returns)
                         eval_ep_length_mean = np.mean(eval_ep_lengths)
 
-                        if not args.notb:
-                            writer.add_scalar("train/q_loss", q_loss.item(), global_iter)
-                            writer.add_scalar("train/policy_loss", policy_loss.item(), global_iter)
-
-                            writer.add_scalar("eval/episode_return", eval_return_mean, global_iter)
-                            writer.add_scalar("eval/episode_length", eval_ep_length_mean, global_iter)
-
-                        print("Iter %d: PLoss: %.6f -- QLoss: %.6f -- Train Return: %.6f -- Test Mean Ret.: %.6f"
-                            % (global_iter, policy_loss.item(), q_loss.item(), train_episode_return, eval_return_mean))
-
-                if not args.notb:
-                    writer.add_scalar("eval/train_episode_return", train_episode_return, global_iter)
-                    writer.add_scalar("eval/train_episode_length", train_episode_length, global_iter)
+                        writer.add_scalar("charts/determinisitic_episode_reward", eval_return_mean, global_iter)
+                        writer.add_scalar("charts/determinisitic_episode_length", eval_ep_length_mean, global_iter)
 
             train_episode_return = 0.
             train_episode_length = 0
@@ -371,6 +376,7 @@ while global_step < args.total_timesteps:
 
             break;
 
-
+# TODO: Remove notb
 if not args.notb:
     writer.close()
+env.close()

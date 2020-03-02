@@ -170,12 +170,10 @@ class CustomEnv(gym.core.Wrapper):
             self.reward_filter = RewardFilter(self.reward_filter, shape=(), gamma=args.gamma, clip=args.rew_clip)
 
         # Running total reward (set to 0.0 at resets)
-        self.total_true_reward = 0.0
 
     def reset(self):
         # Reset the state, and the running total reward
         start_state = self.env.reset()
-        self.total_true_reward = 0.0
         self.counter = 0.0
         if not args.no_obs_reset:
             self.state_filter.reset()
@@ -186,11 +184,11 @@ class CustomEnv(gym.core.Wrapper):
     def step(self, action):
         state, reward, is_done, info = self.env.step(action)
         state = self.state_filter(state)
-        self.total_true_reward += reward
         self.counter += 1
         _reward = self.reward_filter(reward)
+        info['real_reward'] = reward
         if is_done:
-            info['done'] = (self.counter, self.total_true_reward)
+            info['done'] = (self.counter)
         return state, _reward, is_done, info
 
     def seed(self, seed):
@@ -214,13 +212,14 @@ if __name__ == "__main__":
                        help='the maximum length of each episode')
     parser.add_argument('--total-timesteps', type=int, default=100000,
                        help='total timesteps of the experiments')
-    parser.add_argument('--torch-deterministic', type=bool, default=True,
+    parser.add_argument('--no-torch-deterministic', action='store_false',
+                        dest="torch_deterministic", default=True,
                        help='whether to set `torch.backends.cudnn.deterministic=True`')
-    parser.add_argument('--cuda', type=bool, default=True,
-                       help='whether to use CUDA whenever possible')
-    parser.add_argument('--prod-mode', type=bool, default=False,
+    parser.add_argument('--no-cuda', action='store_false', default=True,
+                       help='if toggled, cuda will not be enabled by default')
+    parser.add_argument('--prod-mode', action='store_true', default=False,
                        help='run the script in production mode and use wandb to log outputs')
-    parser.add_argument('--capture-video', type=bool, default=False,
+    parser.add_argument('--capture-video', action='store_true', default=False,
                        help='weather to capture videos of the agent performances (check out `videos` folder)')
     parser.add_argument('--wandb-project-name', type=str, default="cleanRL",
                        help="the wandb's project name")
@@ -248,7 +247,7 @@ if __name__ == "__main__":
     parser.add_argument('--target-kl', type=float, default=0.015)
     # TODO: Actually implement the computation for this
     # MODIFIED: Added toggle for GAE advantage support
-    parser.add_argument('--gae', action='store_true',
+    parser.add_argument('--gae', action='store_true', default=False,
                         help='Use GAE for advantage computation')
 
     # MODIFIED: Separate learning rate for policy and values, according to OpenAI SpinUp
@@ -256,28 +255,29 @@ if __name__ == "__main__":
     parser.add_argument('--value-lr', type=float, default=1e-3)
 
     # MODIFIED: Parameterization for the tricks in the Implementation Matters paper.
-    parser.add_argument('--norm-obs', action='store_true',
+    parser.add_argument('--norm-obs', action='store_true', default=False,
                         help="Toggles observation normalization")
-    parser.add_argument('--norm-rewards', action='store_true',
+    parser.add_argument('--norm-rewards', action='store_true', default=False,
                         help="Toggles rewards normalization")
-    parser.add_argument('--norm-returns', action='store_true',
+    parser.add_argument('--norm-returns', action='store_true', default=False,
                         help="Toggles returns normalization")
-    parser.add_argument('--no-obs-reset', action='store_true',
+    parser.add_argument('--no-obs-reset', action='store_true', default=False,
                         help="When passed, the observation filter shall not be reset after the episode")
-    parser.add_argument('--no-reward-reset', action='store_true',
+    parser.add_argument('--no-reward-reset', action='store_true', default=False,
                         help="When passed, the reward / return filter shall not be reset after the episode")
     parser.add_argument('--obs-clip', type=float, default=10.0,
                         help="Value for reward clipping, as per the paper")
     parser.add_argument('--rew-clip', type=float, default=5.0,
                         help="Value for observation clipping, as per the paper")
-    parser.add_argument('--anneal-lr', action='store_true',
+    parser.add_argument('--anneal-lr', action='store_true', default=False,
                         help="Toggle learning rate annealing for policy and value networks")
     parser.add_argument('--weights-init', default="xavier", choices=["xavier", 'orthogonal'],
-                        help='Selects the scheme to be used for weights initialization')
+                        help='Selects the scheme to be used for weights initialization'),
+    parser.add_argument('--clip-vloss', action="store_true", default=False,
+                        help='Toggles wheter or not to use a clipped loss for the value function, as per the paper.')
     args = parser.parse_args()
     if not args.seed:
         args.seed = int(time.time())
-
 
 # TRY NOT TO MODIFY: setup the environment
 experiment_name = f"{args.gym_id}__{args.exp_name}__{args.seed}__{int(time.time())}"
@@ -397,6 +397,8 @@ loss_fn = nn.MSELoss()
 # TRY NOT TO MODIFY: start the game
 global_step = 0
 while global_step < args.total_timesteps:
+    if args.capture_video:
+        env.stats_recorder.done=True
     next_obs = np.array(env.reset())
 
     # ALGO Logic: Storage for epoch data
@@ -406,13 +408,15 @@ while global_step < args.total_timesteps:
     logprobs = np.zeros((args.episode_length,))
 
     rewards = np.zeros((args.episode_length,))
+    real_rewards = np.zeros((args.episode_length))
     returns = np.zeros((args.episode_length,))
 
     dones = np.zeros((args.episode_length,))
     values = torch.zeros((args.episode_length,)).to(device)
 
     episode_lengths = [-1]
-
+    advantages = np.zeros((args.episode_length,))
+    deltas = np.zeros((args.episode_length,))
     # TRY NOT TO MODIFY: prepare the execution of the game.
     for step in range(args.episode_length):
         global_step += 1
@@ -431,18 +435,17 @@ while global_step < args.total_timesteps:
         clipped_action = np.clip(action.tolist(), env.action_space.low, env.action_space.high)[0]
 
         # TRY NOT TO MODIFY: execute the game and log data.
-        next_obs, rewards[step], dones[step], _ = env.step(clipped_action)
+        next_obs, rewards[step], dones[step], info = env.step(clipped_action)
+        real_rewards[step] = info['real_reward']
         next_obs = np.array(next_obs)
 
         if dones[step]:
             # Computing the discounted returns:
             if args.gae:
-                deltas = np.zeros((args.episode_length,))
-                advantages = np.zeros((args.episode_length,))
                 prev_return = 0
                 prev_value = 0
                 prev_advantage = 0
-                for i in reversed(range(step)):
+                for i in reversed(range(episode_lengths[-1], step)):
                     returns[i] = rewards[i] + args.gamma * prev_return * (1 - dones[i])
                     deltas[i] = rewards[i] + args.gamma * prev_value * (1 - dones[i]) - values[i]
                     # ref: https://arxiv.org/pdf/1506.02438.pdf (generalization advantage estimate)
@@ -450,28 +453,24 @@ while global_step < args.total_timesteps:
                     prev_return = returns[i]
                     prev_value = values[i]
                     prev_advantage = advantages[i]
-                advantages = torch.Tensor(advantages).to(device)
             else:
                 returns[step] = rewards[step]
                 for t in reversed(range(episode_lengths[-1], step)):
                     returns[t] = rewards[t] + args.gamma * returns[t+1] * (1-dones[t])
-                advantages = torch.Tensor(returns - values.detach().cpu().numpy()).to(device)
 
-            writer.add_scalar("charts/episode_reward", rewards[(episode_lengths[-1]+1):step+1].sum(), global_step)
+            writer.add_scalar("charts/episode_reward", real_rewards[(episode_lengths[-1]+1):step+1].sum(), global_step)
+            print(f"global_step={global_step}, episode_reward={real_rewards[(episode_lengths[-1]+1):step+1].sum()}")
             episode_lengths += [step]
             next_obs = np.array(env.reset())
 
-    # TODO: Bootstraping doesn't seem to work
     # bootstrap reward if not done. reached the batch limit
     if not dones[step]:
         returns = np.append(returns, vf.forward(next_obs.reshape(1, -1))[0].detach().cpu().numpy(), axis=-1)
         if args.gae:
-            deltas = np.zeros((args.episode_length,))
-            advantages = np.zeros((args.episode_length,))
-            prev_return = vf.forward(next_obs.reshape(1, -1))[0].detach().cpu().numpy()
+            prev_return = 0
             prev_value = 0
             prev_advantage = 0
-            for i in reversed(range(step)):
+            for i in reversed(range(episode_lengths[-1], step)):
                 returns[i] = rewards[i] + args.gamma * prev_return * (1 - dones[i])
                 deltas[i] = rewards[i] + args.gamma * prev_value * (1 - dones[i]) - values[i]
                 # ref: https://arxiv.org/pdf/1506.02438.pdf (generalization advantage estimate)
@@ -480,12 +479,12 @@ while global_step < args.total_timesteps:
                 prev_value = values[i]
                 prev_advantage = advantages[i]
             returns = returns[:-1]
-            advantages = torch.Tensor(advantages).to(device) # Repetition: refactor ?
         else:
             for t in reversed(range(episode_lengths[-1], step+1)):
                 returns[t] = rewards[t] + args.gamma * returns[t+1] * (1-dones[t])
             returns = returns[:-1]
-            advantages = torch.Tensor(returns - values.detach().cpu().numpy()).to(device) # Repetition: refactor ?
+
+    advantages = torch.Tensor(advantages).to(device) if args.gae else torch.Tensor(returns - values.detach().cpu().numpy()).to(device)
 
     # Optimizaing policy network
     # First Tensorize all that is need to be so, clears up the loss computation part
@@ -519,7 +518,14 @@ while global_step < args.total_timesteps:
     for i_epoch in range(args.update_epochs):
         # Resample values
         values = vf.forward(obs).view(-1)
-        v_loss = loss_fn(returns, values)
+        if args.clip_vloss:
+            v_loss_unclipped = ((values - returns) ** 2)
+            v_loss_clipped = (torch.clamp(values, -args.clip_coef, args.clip_coef) - returns)**2
+            v_loss_min = torch.min( v_loss_unclipped, v_loss_clipped)
+            v_loss = .5 * v_loss_min.mean() # The .5 is not in the paper, but theoretically correct, right ?
+        else:
+            v_loss = loss_fn(returns, values)
+
         v_optimizer.zero_grad()
         v_loss.backward()
         nn.utils.clip_grad_norm_(vf.parameters(), args.max_grad_norm)
