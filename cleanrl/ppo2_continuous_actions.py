@@ -265,6 +265,8 @@ if __name__ == "__main__":
                         help="When passed, the observation filter shall not be reset after the episode")
     parser.add_argument('--no-reward-reset', action='store_true', default=False,
                         help="When passed, the reward / return filter shall not be reset after the episode")
+    parser.add_argument('--norm-adv', action='store_true', default=False,
+                        help="Toggles advantages normalization")
     parser.add_argument('--obs-clip', type=float, default=10.0,
                         help="Value for reward clipping, as per the paper")
     parser.add_argument('--rew-clip', type=float, default=5.0,
@@ -486,6 +488,10 @@ while global_step < args.total_timesteps:
 
     advantages = torch.Tensor(advantages).to(device) if args.gae else torch.Tensor(returns - values.detach().cpu().numpy()).to(device)
 
+    # Advantage normalization
+    if args.norm_adv:
+        advantages = (advantages - advantages.mean()) / advantages.std()
+
     # Optimizaing policy network
     # First Tensorize all that is need to be so, clears up the loss computation part
     logprobs = torch.Tensor(logprobs).to(device) # Called 2 times: during policy update and KL bound checked
@@ -518,6 +524,8 @@ while global_step < args.total_timesteps:
     for i_epoch in range(args.update_epochs):
         # Resample values
         values = vf.forward(obs).view(-1)
+
+        # Value loss clipping
         if args.clip_vloss:
             v_loss_unclipped = ((values - returns) ** 2)
             v_loss_clipped = (torch.clamp(values, -args.clip_coef, args.clip_coef) - returns)**2
