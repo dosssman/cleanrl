@@ -490,7 +490,7 @@ while global_step < args.total_timesteps:
 
     # Advantage normalization
     if args.norm_adv:
-        advantages = (advantages - advantages.mean()) / advantages.std()
+        advantages = (advantages - advantages.mean()) / advantages.std() # TODO: Correct formula btw ?
 
     # Optimizaing policy network
     # First Tensorize all that is need to be so, clears up the loss computation part

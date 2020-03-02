@@ -17,13 +17,13 @@ import os
 import collections
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description='DDPG')
+    parser = argparse.ArgumentParser(description='TD3')
     # Common arguments
     parser.add_argument('--exp-name', type=str, default=os.path.basename(__file__).strip(".py"),
                         help='the name of this experiment')
     parser.add_argument('--gym-id', type=str, default="HopperBulletEnv-v0",
                         help='the id of the gym environment')
-    parser.add_argument('--learning-rate', type=float, default=1e-3, # TODO: Apparently origi. paper uses 1e-4
+    parser.add_argument('--learning-rate', type=float, default=1e-3,
                         help='the learning rate of the optimizer')
     parser.add_argument('--seed', type=int, default=1,
                         help='seed of the experiment')
@@ -47,19 +47,29 @@ if __name__ == "__main__":
                         help='the replay memory buffer size')
     parser.add_argument('--gamma', type=float, default=0.99,
                         help='the discount factor gamma')
-    parser.add_argument('--target-update-interval', type=int, default=1,
-                        help="the timesteps it takes to update the target network")
-    parser.add_argument('--batch-size', type=int, default=128,
+    # THIS becomes useless in TD3
+    # parser.add_argument('--target-update-interval', type=int, default=1,
+    #                     help="the timesteps it takes to update the target network")
+    parser.add_argument('--batch-size', type=int, default=100,
                         help="the batch size of sample from the reply memory")
     parser.add_argument('--tau', type=float, default=0.005,
                         help="target smoothing coefficient (default: 0.005)")
     parser.add_argument('--start-steps', type=int, default=int(1e4),
                         help='initial random exploration step count')
+    parser.add_argument('--update-delay', type=int, default=2,
+                        help='Delay in timestep for actor and critic updates (?)')
 
     # TODO: Add Parameter Noising support ~ https://arxiv.org/abs/1706.01905
-    parser.add_argument('--noise-type', type=str, choices=["ou", "normal", "param"], default="ou",
+    # NOTE: This relates to the noise of the action during policy iteration
+    parser.add_argument('--noise-type', type=str, choices=["ou", "normal"], default="normal",
                         help='type of noise to be used when sampling exploratiry actions')
     parser.add_argument('--noise-std', type=float, default=0.1,
+                        help="standard deviation of the Normal dist for action noise sampling")
+    # NOTE: This however, relates the noise applied to the next_mus used for critic updates via TD(0) Learning
+    # By default, the other  suggest using Normal ( Gaussian) noise for the next_mus noise too
+    parser.add_argument('--noise-std-target', type=float, default=0.2,
+                        help="standard deviation of the Normal dist for action noise sampling")
+    parser.add_argument('--noise-clip-coef', type=float, default=0.5,
                         help="standard deviation of the Normal dist for action noise sampling")
 
     # MODIFIED: Include deterministic evaluation of the agent
@@ -67,7 +77,7 @@ if __name__ == "__main__":
                         help='If passed, the script will evaluate the agent without the noise')
     parser.add_argument('--eval-interval', type=int, default=20,
                         help='Defines every X episodes the agent is evaluated fully determinisitically')
-    parser.add_argument('--eval-episodes', type=int, default=3,
+    parser.add_argument('--eval-episodes', type=int, default=5,
                         help='How many episode do we evaluate the agent over ?')
 
     # TODO: Remove this trash once everything works as supposed
@@ -128,9 +138,9 @@ class Policy(nn.Module):
     def __init__(self):
         # Custom
         super().__init__()
-        self.fc1 = nn.Linear(input_shape, 120)
-        self.fc2 = nn.Linear(120, 84)
-        self.fc3 = nn.Linear(84, output_shape)
+        self.fc1 = nn.Linear(input_shape, 400)
+        self.fc2 = nn.Linear(400, 300)
+        self.fc3 = nn.Linear(300, output_shape)
 
         self.tanh_mu = nn.Tanh() # To squash actions between -1.,1.
 
@@ -147,9 +157,9 @@ class Policy(nn.Module):
 class QValue(nn.Module):
     def __init__(self):
         super().__init__()
-        self.fc1 = nn.Linear(input_shape + output_shape, 120)
-        self.fc2 = nn.Linear(120, 84)
-        self.fc3 = nn.Linear(84, 1)
+        self.fc1 = nn.Linear(input_shape + output_shape, 400)
+        self.fc2 = nn.Linear(400, 300)
+        self.fc3 = nn.Linear(300, 1)
 
     def forward(self, x, a):
         # GPU Seg. fault bug workaround
@@ -197,8 +207,11 @@ buffer = ReplayBuffer(args.buffer_size)
 pg = Policy().to(device)
 pg_target = Policy().to(device)
 
-qf = QValue().to(device)
-qf_target = QValue().to(device)
+qf1 = QValue().to(device)
+qf2 = QValue().to(device)
+
+qf1_target = QValue().to(device)
+qf2_target = QValue().to(device)
 
 # MODIFIED: Helper function to update target value function network
 def update_target_value(vf, vf_target, tau):
@@ -207,11 +220,12 @@ def update_target_value(vf, vf_target, tau):
 
 # Sync weights of the QValues
 # Setting tau to 1.0 is equivalent to Hard Update
-update_target_value(qf, qf_target, 1.0)
+update_target_value(qf1, qf1_target, 1.0)
+update_target_value(qf2, qf1_target, 1.0)
 update_target_value(pg, pg_target, 1.0)
 
 # TODO: Separate learning rate for policy and value func.
-q_optimizer = optim.Adam(list(qf.parameters()),
+q_optimizer = optim.Adam(list(qf1.parameters()) + list(qf2.parameters()),
     lr=args.learning_rate)
 p_optimizer = optim.Adam(list(pg.parameters()),
     lr=args.learning_rate)
@@ -231,7 +245,6 @@ if args.prod_mode:
     wandb.init(project=args.wandb_project_name, entity=args.wandb_entity, tensorboard=True, config=vars(args), name=experiment_name)
     writer = SummaryWriter(f"/tmp/{experiment_name}")
     wandb.save(os.path.abspath(__file__))
-
 
 global_step = 0
 global_iter = 0
@@ -263,6 +276,8 @@ while global_step < args.total_timesteps:
                 elif args.noise_type == "param":
                     ### DANGER: Pondering how many time we must noise the weights between updates
                     # NAIVE Version: Sample the same epsilon and add it to every parameter
+                    raise NotImplementedError
+
                     noise = args.noise_std * np.random.randn(1)[0]
                     for param in pg.parameters():
                         param += noise
@@ -296,41 +311,67 @@ while global_step < args.total_timesteps:
                     # Q function losses and update
                     with torch.no_grad():
                         next_mus = pg_target.forward(next_observation_batch)
+                        # As per the paper, we also noisy up the next_mus
+                        action = pg.forward([obs]).tolist()[0]
+
+                        next_mus_noise = args.noise_std_target * np.random.randn(output_shape)
+
+                        # Clipping the noises for next_mus and apply the noise to next_mus
+                        np.clip(next_mus_noise, -args.noise_clip_coef, args.noise_clip_coef, next_mus_noise)
+                        next_mus += torch.Tensor(next_mus_noise).to(device)
+
+                        qf1_next_target = qf1_target.forward(next_observation_batch, next_mus).view(-1)
+                        qf2_next_target = qf1_target.forward(next_observation_batch, next_mus).view(-1)
+                        min_qf_next_target = torch.min(qf1_next_target,qf2_next_target)
+
                         q_backup = torch.Tensor(reward_batch).to(device) + \
                             (1 - torch.Tensor(terminals_batch).to(device)) * args.gamma * \
-                            qf_target.forward(next_observation_batch, next_mus).view(-1)
+                            min_qf_next_target
 
-                    q_values = qf.forward(observation_batch, action_batch).view(-1)
-                    q_loss = mse_loss_fn(q_values, q_backup)
+                    qf1_values = qf1.forward(observation_batch, action_batch).view(-1)
+                    qf2_values = qf2.forward(observation_batch, action_batch).view(-1)
+
+                    qf1_loss = mse_loss_fn(qf1_values, q_backup)
+                    qf2_loss = mse_loss_fn(qf2_values, q_backup)
+                    qf_loss = (qf1_loss + qf2_loss).mean()
 
                     q_optimizer.zero_grad()
-                    q_loss.backward()
+                    qf_loss.backward()
                     q_optimizer.step()
 
-                    # Policy loss and update
-                    resampled_mus = pg.forward(observation_batch)
-                    q_mus = qf.forward(observation_batch, resampled_mus).view(-1)
-                    policy_loss = - q_mus.mean()
-
-                    p_optimizer.zero_grad()
-                    policy_loss.backward()
-                    p_optimizer.step()
 
                     # Updates the target network
-                    if global_iter > 0 and global_iter % args.target_update_interval == 0:
-                        update_target_value(qf, qf_target, args.tau)
+                    # if global_iter > 0 and global_iter % args.target_update_interval == 0:
+                    if global_iter > 0 and global_iter % args.update_delay == 0:
+                        # Policy loss and update
+                        resampled_mus = pg.forward(observation_batch)
+                        # NOTE: The paper uses
+                        qf1_mus = qf1(observation_batch, resampled_mus).view(-1)
+                        qf2_mus = qf2(observation_batch, resampled_mus).view(-1)
+                        min_qf_mus = torch.min(qf1_mus, qf2_mus)
+
+                        policy_loss = - min_qf_mus.mean()
+
+                        p_optimizer.zero_grad()
+                        policy_loss.backward()
+                        p_optimizer.step()
+
+                        update_target_value(qf1, qf1_target, args.tau)
+                        update_target_value(qf2, qf2_target, args.tau)
                         update_target_value(pg, pg_target, args.tau)
 
                     if global_iter > 0 and global_iter % 1000 == 0:
                         print("Iter %d: PLoss: %.6f -- QLoss: %.6f -- Train Return: %.6f"
-                            % (global_iter, policy_loss.item(), q_loss.item(), train_episode_return))
+                            % (global_iter, policy_loss.item(), qf_loss.item(), train_episode_return))
 
                 if not args.notb:
                     # Logging training stats
                     writer.add_scalar("charts/episode_reward", train_episode_return, global_iter)
                     writer.add_scalar("charts/episode_length", train_episode_length, global_iter)
 
-                    writer.add_scalar("train/q_loss", q_loss.item(), global_iter)
+                    writer.add_scalar("train/q_loss", qf_loss.item(), global_iter)
+                    writer.add_scalar("train/qf1_loss", qf1_loss.item(), global_iter)
+                    writer.add_scalar("train/qf2_loss", qf1_loss.item(), global_iter)
                     writer.add_scalar("train/policy_loss", policy_loss.item(), global_iter)
 
                     # Deterministic evaluation loop
