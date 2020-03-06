@@ -56,13 +56,14 @@ if __name__ == "__main__":
     parser.add_argument('--start-steps', type=int, default=int(1e4),
                         help='initial random exploration step count')
 
+    # MODIFIED: Added noise type parameterization
     # TODO: Add Parameter Noising support ~ https://arxiv.org/abs/1706.01905
     parser.add_argument('--noise-type', type=str, choices=["ou", "normal", "param"], default="ou",
                         help='type of noise to be used when sampling exploratiry actions')
     parser.add_argument('--noise-std', type=float, default=0.1,
                         help="standard deviation of the Normal dist for action noise sampling")
 
-    # MODIFIED: Include deterministic evaluation of the agent
+    # MODIFIED: Included deterministic evaluation of the agent
     parser.add_argument('--eval', action="store_true",
                         help='If passed, the script will evaluate the agent without the noise')
     parser.add_argument('--eval-interval', type=int, default=20,
@@ -94,10 +95,6 @@ act_limit = env.action_space.high[0]
 assert isinstance(env.action_space, Box), "only continuous action space is supported"
 
 # ALGO LOGIC: initialize agent here:
-EPS = 1e-8
-LOG_STD_MAX = 2
-LOG_STD_MIN = -20
-
 # MODIFIED: Added noise function for exploration
 # Based on http://math.stackexchange.com/questions/1287634/implementing-ornstein-uhlenbeck-in-matlab
 # TODO: More elegant way ?
@@ -232,7 +229,6 @@ if args.prod_mode:
     writer = SummaryWriter(f"/tmp/{experiment_name}")
     wandb.save(os.path.abspath(__file__))
 
-
 global_step = 0
 global_iter = 0
 global_episode = 0
@@ -258,7 +254,7 @@ while global_step < args.total_timesteps:
                     if args.noise_type == "ou":
                         # Ourstein Uhlenbeck noise from baseline
                         action += ou_act_noise()
-                    elif args.noise_type == "normal":
+                    elif args.noise_type == "normal": # But is it even ?
                         action += args.noise_std * np.random.randn(output_shape) # From OpenAI SpinUp
                 elif args.noise_type == "param":
                     ### DANGER: Pondering how many time we must noise the weights between updates
@@ -299,7 +295,8 @@ while global_step < args.total_timesteps:
                         q_backup = torch.Tensor(reward_batch).to(device) + \
                             (1 - torch.Tensor(terminals_batch).to(device)) * args.gamma * \
                             qf_target.forward(next_observation_batch, next_mus).view(-1)
-
+                        # NOTE: Following TD3, we should also noise the next_mus
+                        
                     q_values = qf.forward(observation_batch, action_batch).view(-1)
                     q_loss = mse_loss_fn(q_values, q_backup)
 
