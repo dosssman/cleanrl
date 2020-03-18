@@ -59,12 +59,15 @@ if __name__ == "__main__":
     parser.add_argument('--update-delay', type=int, default=2,
                         help='Delay in timestep for actor and critic updates (?)')
 
-    # TODO: Add Parameter Noising support ~ https://arxiv.org/abs/1706.01905
     # NOTE: This relates to the noise of the action during policy iteration
-    parser.add_argument('--noise-type', type=str, choices=["ou", "normal"], default="normal",
+    parser.add_argument('--noise-type', type=str, choices=["normal", "ou", "param", "adapt-param"], default="normal",
                         help='type of noise to be used when sampling exploratiry actions')
-    parser.add_argument('--noise-std', type=float, default=0.1,
-                        help="standard deviation of the Normal dist for action noise sampling")
+    parser.add_argument('--noise-mean', type=float, default=0.0,
+                        help="mean for the noise process")
+    parser.add_argument('--noise-std', type=float, default=0.2,
+                        help="standard deviation of the noise process")
+    parser.add_argument('--param-noise-adapt-interval', type=int, default=50,
+                        help="Defines the updated interval we adapt the std of the AdaptiveParamNoiseSpec")
     # NOTE: This however, relates the noise applied to the next_mus used for critic updates via TD(0) Learning
     # By default, the other  suggest using Normal ( Gaussian) noise for the next_mus noise too
     parser.add_argument('--noise-std-target', type=float, default=0.2,
@@ -79,6 +82,17 @@ if __name__ == "__main__":
                         help='Defines every X episodes the agent is evaluated fully determinisitically')
     parser.add_argument('--eval-episodes', type=int, default=5,
                         help='How many episode do we evaluate the agent over ?')
+
+    # Experiments:
+    # WARNING Always layer norm when using parameter space noise please
+    # TODO: Discuss whether to set it as a default or not. param space noise paper says that's What
+    # the original paper did. P12 A.2
+    parser.add_argument('--layer-norm', default=False, action="store_true",
+                        help='Toggles layers norm in the actor and critic\s networks')
+
+    # TODO: Remove this trash latter
+    # Neural Network Parametrization
+    parser.add_argument('--hidden-sizes', nargs='+', type=int, default=[256,128,80])
 
     # TODO: Remove this trash once everything works as supposed
     parser.add_argument('--notb', action='store_true',
@@ -108,61 +122,144 @@ EPS = 1e-8
 LOG_STD_MAX = 2
 LOG_STD_MIN = -20
 
-# MODIFIED: Added noise function for exploration
+# MODIFIED: Added noise functions for exploration, copied from Baselines
 # Based on http://math.stackexchange.com/questions/1287634/implementing-ornstein-uhlenbeck-in-matlab
-# TODO: More elegant way ?
-if args.noise_type == "ou":
-    class OrnsteinUhlenbeckActionNoise():
-        def __init__(self, mu, sigma, theta=.15, dt=1e-2, x0=None):
-            self.theta = theta
-            self.mu = mu
-            self.sigma = sigma
-            self.dt = dt
-            self.x0 = x0
-            self.reset()
+class NormalActionNoise(object):
+    def __init__(self, mu, sigma, shape=1):
+        self.mu = mu
+        self.sigma = sigma
+        self.shape = shape
 
-        def __call__(self):
-            x = self.x_prev + self.theta * (self.mu - self.x_prev) * self.dt + self.sigma * np.sqrt(self.dt) * np.random.normal(size=self.mu.shape)
-            self.x_prev = x
-            return x
+    def __call__(self):
+        return np.random.normal(self.mu, self.sigma, self.shape)
 
-        def reset(self):
-            self.x_prev = self.x0 if self.x0 is not None else np.zeros_like(self.mu)
+    def __repr__(self):
+        return 'NormalActionNoise(mu={}, sigma={})'.format(self.mu, self.sigma)
 
-        def __repr__(self):
-            return 'OrnsteinUhlenbeckActionNoise(mu={}, sigma={})'.format(self.mu, self.sigma)
-    ou_act_noise = OrnsteinUhlenbeckActionNoise(mu=np.zeros(output_shape), sigma=float(args.noise_std) * np.ones(output_shape))
+class AdaptiveParamNoiseSpec(object):
+    def __init__(self, initial_stddev=0.1, desired_action_stddev=0.1, adoption_coefficient=1.01):
+        self.initial_stddev = initial_stddev
+        self.desired_action_stddev = desired_action_stddev
+        self.adoption_coefficient = adoption_coefficient
+
+        self.current_stddev = initial_stddev
+
+    def adapt(self, distance):
+        if distance > self.desired_action_stddev:
+            # Decrease stddev.
+            self.current_stddev /= self.adoption_coefficient
+        else:
+            # Increase stddev.
+            self.current_stddev *= self.adoption_coefficient
+
+    def get_stats(self):
+        stats = {
+            'param_noise_stddev': self.current_stddev,
+        }
+        return stats
+
+    def __repr__(self):
+        fmt = 'AdaptiveParamNoiseSpec(initial_stddev={}, desired_action_stddev={}, adoption_coefficient={})'
+        return fmt.format(self.initial_stddev, self.desired_action_stddev, self.adoption_coefficient)
+
+class OrnsteinUhlenbeckActionNoise():
+    def __init__(self, mu, sigma, theta=.15, dt=1e-2, x0=None):
+        self.theta = theta
+        self.mu = mu
+        self.sigma = sigma
+        self.dt = dt
+        self.x0 = x0
+        self.reset()
+
+    def __call__(self):
+        x = self.x_prev + self.theta * (self.mu - self.x_prev) * self.dt + self.sigma * np.sqrt(self.dt) * np.random.normal(size=self.mu.shape)
+        self.x_prev = x
+        return x
+
+    def reset(self):
+        self.x_prev = self.x0 if self.x0 is not None else np.zeros_like(self.mu)
+
+    def __repr__(self):
+        return 'OrnsteinUhlenbeckActionNoise(mu={}, sigma={})'.format(self.mu, self.sigma)
+
+if args.noise_type == "normal":
+    noise_process = lambda: NormalActionNoise( np.ones( output_shape) * args.noise_mean, np.ones(output_shape) * float(args.noise_std))()
+elif args.noise_type == "ou":
+    noise_process = OrnsteinUhlenbeckActionNoise( np.ones(output_shape) * args.noise_mean, np.ones(output_shape) * float(args.noise_std))
+elif args.noise_type == "param":
+    # Naive version: just sample a single noise value and add it to all the weights in the network
+    noise_process = lambda: NormalActionNoise(np.ones(1) * args.noise_mean, np.ones(1) * args.noise_std)()
+elif args.noise_type == "adapt-param":
+    # x is the shape
+    adaptive_param_noise = AdaptiveParamNoiseSpec( args.noise_std, args.noise_std)
+    noise_process = lambda shape: NormalActionNoise(np.ones(1) * args.noise_mean,
+        np.ones(1) * adaptive_param_noise.current_stddev, shape=shape)()
+else:
+    raise NotImplementedError
+# THIS is a function that depends on the type of noise passed earlier.
+if args.noise_type == "adapt-param":
+    # Quick workaround as for adapt-param, we need noise with a specific shape !
+    noise_fn = lambda shape: noise_process(shape)
+else:
+    noise_fn = lambda: noise_process()
 
 # Determinsitic policy
+# TODO: Refactor Policy and QFunction the CleanRL way
 class Policy(nn.Module):
     def __init__(self):
         # Custom
         super().__init__()
-        self.fc1 = nn.Linear(input_shape, 400)
-        self.fc2 = nn.Linear(400, 300)
-        self.fc3 = nn.Linear(300, output_shape)
+        self.layers = nn.ModuleList()
+        self.layer_norms = nn.ModuleList()
 
-        self.tanh_mu = nn.Tanh() # To squash actions between -1.,1.
+        current_dim = input_shape
+        for hsize in args.hidden_sizes:
+            self.layers.append(nn.Linear(current_dim, hsize))
+            if args.layer_norm:
+                self.layer_norms.append(nn.LayerNorm(hsize))
+            current_dim = hsize
+
+        # TODO: Add squashing like mechanism for action bound inforcing
+        self.fc_mu = nn.Linear(args.hidden_sizes[-1], output_shape)
+        if args.layer_norm:
+            self.mu_ln = nn.LayerNorm(output_shape) # Probably not that helpful since passed to tanh (?)
+        self.tanh_mu = nn.Tanh()
 
     def forward(self, x):
-        x = preprocess_obs_fn(x)
+        # # Workaround Seg. Fault when passing tensor to Q Function
+        if not isinstance(x, torch.Tensor):
+            x = preprocess_obs_fn(x)
 
-        x = F.relu(self.fc1(x))
-        x = F.relu(self.fc2(x))
-        x = self.fc3(x)
-        x = self.tanh_mu(x)
+        for layer_idx, layer in enumerate(self.layers):
+            x = F.relu(layer(x))
 
-        return x
+            if args.layer_norm:
+                x = self.layer_norms[layer_idx](x)
+
+        mus = self.fc_mu(x)
+
+        if args.layer_norm:
+            mus = self.mu_ln(mus)
+
+        return self.tanh_mu( mus)
 
 class QValue(nn.Module):
     def __init__(self):
         super().__init__()
-        self.fc1 = nn.Linear(input_shape + output_shape, 400)
-        self.fc2 = nn.Linear(400, 300)
-        self.fc3 = nn.Linear(300, 1)
+        self.layers = nn.ModuleList()
+        self.layer_norms = nn.ModuleList()
+
+        current_dim = input_shape + output_shape
+        for hsize in args.hidden_sizes:
+            self.layers.append(nn.Linear(current_dim, hsize))
+            if args.layer_norm:
+                self.layer_norms.append(nn.LayerNorm(hsize))
+            current_dim = hsize
+
+        self.layers.append(nn.Linear(args.hidden_sizes[-1], 1))
 
     def forward(self, x, a):
-        # GPU Seg. fault bug workaround
+        # Workaround Seg. Fault when passing tensor to Q Function
         if not isinstance(x, torch.Tensor):
             x = preprocess_obs_fn(x)
 
@@ -171,13 +268,13 @@ class QValue(nn.Module):
 
         x = torch.cat([x,a], 1)
 
-        x = F.relu(self.fc1(x))
-        x = F.relu(self.fc2(x))
-        x = self.fc3(x)
+        for layer_idx, layer in enumerate(self.layers[:-1]):
+            x = F.relu(layer(x))
+            if args.layer_norm:
+                x = self.layer_norms[layer_idx](x)
 
-        return x
+        return self.layers[-1](x)
 
-# modified from https://github.com/seungeunrho/minimalRL/blob/master/dqn.py#
 class ReplayBuffer():
     def __init__(self, buffer_limit):
         self.buffer = collections.deque(maxlen=buffer_limit)
@@ -206,6 +303,14 @@ buffer = ReplayBuffer(args.buffer_size)
 # Defining agent's policy and corresponding target
 pg = Policy().to(device)
 pg_target = Policy().to(device)
+
+# Setup all the necessary to enable parameter space noising method,
+# with both naive and adaptive version
+if args.noise_type == "param":
+    pg_exploration = Policy().to(device)
+elif args.noise_type == "adapt-param":
+    pg_exploration = Policy().to(device)
+    pg_adaptive_noise = Policy().to(device)
 
 qf1 = QValue().to(device)
 qf2 = QValue().to(device)
@@ -249,6 +354,7 @@ if args.prod_mode:
 global_step = 0
 global_iter = 0
 global_episode = 0
+
 while global_step < args.total_timesteps:
     next_obs = np.array(env.reset())
     done = False
@@ -256,6 +362,33 @@ while global_step < args.total_timesteps:
     # MODIFIED: Keeping track of train episode returns and lengths
     train_episode_return = 0.
     train_episode_length = 0
+
+    # SPECIAL: In case we use parameter space noise, we need to copy the current
+    # actor network and and noise up its weights, then use it to sample
+    # TODO: Also, in case we still using action_space.sample(), do not copy weights etc...
+    if args.noise_type == "param":
+        p_optimizer.zero_grad()# Just for safety
+        pg_exploration.load_state_dict( pg.state_dict()) # Copy current weight to exploratory policy
+
+        # NAIVE version: No adaptive parameter noise as in the paper, just adding
+        # the same noise to all the weights, sampled from a Gaussian Noise
+        # NOITE: When using Naive method for param noise, too big noise-std will results in action always being [1.] * act_shape
+        noise = noise_fn()[0]
+
+        with torch.no_grad():
+            for param in pg_exploration.parameters():
+                param += noise
+
+    elif args.noise_type == "adapt-param":
+        # TODO: Generate a random noise for each of the individual weights (bias included it seems)
+        p_optimizer.zero_grad()# Just for safety
+        pg_exploration.load_state_dict( pg.state_dict()) # Copy current weight to exploratory policy
+
+        with torch.no_grad():
+            for param in pg_exploration.parameters():
+             # Generate noise corresponding to the shape of the layer and add it
+                # TODO: More rigorous debug. Can we actually see the matrix + matrix addition of the noise ?
+                param.add_(torch.Tensor(noise_fn(param.shape)).to(device))
 
     # TRY NOT TO MODIFY: prepare the execution of the game.
     for step in range(args.episode_length):
@@ -266,25 +399,17 @@ while global_step < args.total_timesteps:
         if global_step > args.start_steps:
 
             with torch.no_grad():
+
                 if args.noise_type in ["ou", "normal"]:
                     action = pg.forward([obs]).tolist()[0]
-                    if args.noise_type == "ou":
-                        # Ourstein Uhlenbeck noise from baseline
-                        action += ou_act_noise()
-                    elif args.noise_type == "normal":
-                        action += args.noise_std * np.random.randn(output_shape) # From OpenAI SpinUp
-                elif args.noise_type == "param":
-                    ### DANGER: Pondering how many time we must noise the weights between updates
-                    # NAIVE Version: Sample the same epsilon and add it to every parameter
-                    raise NotImplementedError
 
-                    noise = args.noise_std * np.random.randn(1)[0]
-                    for param in pg.parameters():
-                        param += noise
-
-                    action = pg.forward([obs]).tolist()[0]
+                    # NOTE: This is already preconfigured to support a specific noise function
+                    action += noise_fn()
+                elif args.noise_type in ["param","adapt-param"]:
+                    action = pg_exploration.forward([obs]).tolist()[0]
                 else:
                     raise NotImplementedError
+
                 action = np.clip(action, -act_limit, act_limit)
         else:
             action = env.action_space.sample()
@@ -360,6 +485,23 @@ while global_step < args.total_timesteps:
                         update_target_value(qf2, qf2_target, args.tau)
                         update_target_value(pg, pg_target, args.tau)
 
+                    # Updaing the std of the AdaptiveParamNoiseSpec
+                    if args.noise_type == "adapt-param":
+                        if global_iter > 0 and global_iter % args.param_noise_adapt_interval == 0:
+                            # First, perturb the current network again
+                            p_optimizer.zero_grad()# Just for safety
+                            pg_adaptive_noise.load_state_dict( pg.state_dict())
+
+                            with torch.no_grad():
+                                for param in pg_adaptive_noise.parameters():
+                                 # Generate noise corresponding to the shape of the layer and add it
+                                    # TODO: More rigorous debug. Can we actually see the matrix + matrix addition of the noise ?
+                                    param.add_(torch.Tensor(noise_fn(param.shape)).to(device))
+
+                            distance = mse_loss_fn( pg(observation_batch), pg_adaptive_noise(observation_batch))
+
+                            adaptive_param_noise.adapt(distance)
+
                     if global_iter > 0 and global_iter % 1000 == 0:
                         print("Iter %d: PLoss: %.6f -- QLoss: %.6f -- Train Return: %.6f"
                             % (global_iter, policy_loss.item(), qf_loss.item(), train_episode_return))
@@ -414,8 +556,9 @@ while global_step < args.total_timesteps:
 
             # Need to reset OrnsteinUhlenbeckActionNoise after each episode apparently
             if args.noise_type == "ou":
-                ou_act_noise.reset()
-
+                noise_process.reset()
+                noise_fn = lambda: noise_process()
+            
             break;
 
 # TODO: Remove notb

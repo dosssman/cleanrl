@@ -322,6 +322,11 @@ while global_step < args.total_timesteps:
             # DEBUG: Tracking the logits
             logits = pg(obs[step:step+1])
             logits = logits[0][0].cpu().numpy()
+            # print( "# DEBUG: Logits")
+            # print( logits)
+            if global_step % 100 == 0:
+                print( "\t### DEBUG: Logits @ step %d: " % global_step, logits)
+                writer.add_histogram( "debug/logits", logits, global_step)
 
             action, logproba = pg.get_action(obs[step:step+1])
 
