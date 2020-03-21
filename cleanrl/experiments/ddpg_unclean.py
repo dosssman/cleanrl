@@ -73,6 +73,10 @@ if __name__ == "__main__":
     parser.add_argument('--layer-norm', default=False, action="store_true",
                         help='Toggles layers norm in the actor and critic\s networks')
 
+    ## Adding noise to the target mus to, as in TD3, but only one Q network
+    parser.add_argument('--target-mus-noise', action="store_true",
+        help='If passed, will add some noise to the target next mus')
+
     # TODO: Remove this trash latter
     # Neural Network Parametrization
     parser.add_argument('--hidden-sizes', nargs='+', type=int, default=[256,128,80])
@@ -185,7 +189,6 @@ if args.noise_type == "adapt-param":
 else:
     noise_fn = lambda: noise_process()
 
-
 # Determinsitic policy
 # TODO: Refactor Policy and QFunction the CleanRL way
 class Policy(nn.Module):
@@ -273,6 +276,9 @@ elif args.noise_type == "adapt-param":
     pg_exploration = Policy().to(device)
     pg_adaptive_noise = Policy().to(device)
 
+    if args.target_mus_noise:
+        pg_target_exploration = Policy().to(device)
+
 qf = QValue().to(device)
 qf_target = QValue().to(device)
 
@@ -355,6 +361,9 @@ while global_step < args.total_timesteps:
         p_optimizer.zero_grad()# Just for safety
         pg_exploration.load_state_dict( pg.state_dict()) # Copy current weight to exploratory policy
 
+        if args.target_mus_noise:
+            pg_target_exploration.load_state_dict( pg_target.state_dict())
+
         # NAIVE version: No adaptive parameter noise as in the paper, just adding
         # the same noise to all the weights, sampled from a Gaussian Noise
         # NOITE: When using Naive method for param noise, too big noise-std will results in action always being [1.] * act_shape
@@ -364,16 +373,29 @@ while global_step < args.total_timesteps:
             for param in pg_exploration.parameters():
                 param += noise
 
+            if args.target_mus_noise:
+                for param in pg_target_exploration.parameters():
+                    param += noise
+
     elif args.noise_type == "adapt-param":
         # TODO: Generate a random noise for each of the individual weights (bias included it seems)
         p_optimizer.zero_grad()# Just for safety
         pg_exploration.load_state_dict( pg.state_dict()) # Copy current weight to exploratory policy
+
+        if args.target_mus_noise:
+            pg_target_exploration.load_state_dict( pg_target.state_dict())
 
         with torch.no_grad():
             for param in pg_exploration.parameters():
              # Generate noise corresponding to the shape of the layer and add it
                 # TODO: More rigorous debug. Can we actually see the matrix + matrix addition of the noise ?
                 param.add_(torch.Tensor(noise_fn(param.shape)).to(device))
+
+            if args.target_mus_noise:
+                for param in pg_target_exploration.parameters():
+                 # Generate noise corresponding to the shape of the layer and add it
+                    # TODO: More rigorous debug. Can we actually see the matrix + matrix addition of the noise ?
+                    param.add_(torch.Tensor(noise_fn(param.shape)).to(device))
 
     # TRY NOT TO MODIFY: prepare the execution of the game.
     for step in range(args.episode_length):
@@ -419,7 +441,16 @@ while global_step < args.total_timesteps:
 
                     # Q function losses and update
                     with torch.no_grad():
-                        next_mus = pg_target.forward( next_observation_batch)
+                        if args.target_mus_noise:
+                            if args.noise_type in ["normal", "ou"]:
+                                next_mus = pg_target(next_observation_batch)
+                                next_mus += torch.Tensor(noise_fn()).to(device)
+                                next_mus.clamp_( -act_limit, act_limit)
+                            elif args.noise_type in ["param","adapt-param"]:
+                                next_mus = pg_target_exploration(next_observation_batch)
+                        else:
+                            next_mus = pg_target.forward( next_observation_batch)
+
                         q_backup = torch.Tensor(reward_batch).to(device) + \
                             (1 - torch.Tensor(terminals_batch).to(device)) * args.gamma * \
                             qf_target.forward( next_observation_batch, next_mus).view(-1)

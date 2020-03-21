@@ -70,7 +70,6 @@ if __name__ == "__main__":
                         help='Defines every X episodes the agent is evaluated fully determinisitically')
     parser.add_argument('--eval-episodes', type=int, default=3,
                         help='How many episode do we evaluate the agent over ?')
-
     # TODO: Remove this trash once everything works as supposed
     parser.add_argument('--notb', action='store_true',
         help='No Tensorboard logging')
@@ -291,12 +290,34 @@ while global_step < args.total_timesteps:
 
                     # Q function losses and update
                     with torch.no_grad():
-                        next_mus = pg_target.forward(next_observation_batch)
+                        if args.target_mus_noise:
+                            if args.noise_type in ["ou", "normal"]:
+                                next_mus = pg.forward([obs]).tolist()[0]
+                                if args.noise_type == "ou":
+                                    # TODO: Probably better to separate the OU noise process
+                                    action += ou_act_noise()
+                                elif args.noise_type == "normal": # But is it even ?
+                                    action += args.noise_std * np.random.randn(output_shape) # From OpenAI SpinUp
+                            elif args.noise_type == "param":
+                                ### DANGER: Pondering how many time we must noise the weights between updates
+                                # NAIVE Version: Sample the same epsilon and add it to every parameter
+                                noise = args.noise_std * np.random.randn(1)[0]
+                                for param in pg.parameters():
+                                    param += noise
+
+                                action = pg.forward([obs]).tolist()[0]
+                            else:
+                                raise NotImplementedError
+                            action = np.clip(action, -act_limit, act_limit)
+
+                        else:
+                            next_mus = pg_target.forward(next_observation_batch)
+
                         q_backup = torch.Tensor(reward_batch).to(device) + \
                             (1 - torch.Tensor(terminals_batch).to(device)) * args.gamma * \
                             qf_target.forward(next_observation_batch, next_mus).view(-1)
                         # NOTE: Following TD3, we should also noise the next_mus
-                        
+
                     q_values = qf.forward(observation_batch, action_batch).view(-1)
                     q_loss = mse_loss_fn(q_values, q_backup)
 

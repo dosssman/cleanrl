@@ -147,7 +147,9 @@ if __name__ == "__main__":
                         help='Toggles wheter or not to use a clipped loss for the value function, as per the paper.')
     parser.add_argument('--pol-layer-norm', action='store_true', default=False,
                        help='Enables layer normalization in the policy network')
-    # TODO ? Experiment with value function layer norm too, as it gave quite good results in SAC
+    # Experiments: Value function layer norm
+    parser.add_argument('--val-layer-norm', action='store_true', default=False,
+                       help='Enables layer normalization in the value network')
 
     args = parser.parse_args()
     if not args.seed:
@@ -257,6 +259,10 @@ class Value(nn.Module):
         self.fc1 = nn.Linear(input_shape, 64)
         self.fc2 = nn.Linear(64, 1)
 
+        if args.val_layer_norm:
+            # Layer Normalization
+            self.ln1 = torch.nn.LayerNorm(64)
+
         if args.weights_init == "orthogonal":
             torch.nn.init.orthogonal_(self.fc1.weight)
             torch.nn.init.orthogonal_(self.fc2.weight)
@@ -268,8 +274,12 @@ class Value(nn.Module):
 
     def forward(self, x):
         x = preprocess_obs_fn(x)
-        x = torch.tanh(self.fc1(x))
+        x = self.fc1(x)
+        if args.val_layer_norm:
+            x = self.ln1(x)
+        x = torch.tanh(x)
         x = self.fc2(x)
+
         return x
 
 pg = Policy().to(device)
