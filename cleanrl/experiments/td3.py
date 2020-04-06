@@ -16,6 +16,11 @@ import random
 import os
 import collections
 
+try:
+    import mujoco_py
+except:
+    pass
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='TD3')
     # Common arguments
@@ -43,7 +48,7 @@ if __name__ == "__main__":
                         help="the entity (team) of wandb's project")
 
     # Algorithm specific arguments
-    parser.add_argument('--buffer-size', type=int, default=int(1e5),
+    parser.add_argument('--buffer-size', type=int, default=int(1e6),
                         help='the replay memory buffer size')
     parser.add_argument('--gamma', type=float, default=0.99,
                         help='the discount factor gamma')
@@ -558,7 +563,7 @@ while global_step < args.total_timesteps:
             if args.noise_type == "ou":
                 noise_process.reset()
                 noise_fn = lambda: noise_process()
-            
+
             break;
 
 # TODO: Remove notb

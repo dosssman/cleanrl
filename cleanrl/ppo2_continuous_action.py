@@ -122,7 +122,7 @@ if __name__ == "__main__":
     parser.add_argument('--kl', action='store_true',
                         help='If toggled, the policy updates will be early stopped w.r.t target-kl')
     parser.add_argument('--target-kl', type=float, default=0.015,
-                        help='the target-kl variable that is referred by --kl')
+                        help='the target-kl variable that is referred by --kl; Upper bound of the approximate KL Divergence for KLE technique')
     parser.add_argument('--gae', action='store_true', default=False,
                         help='Use GAE for advantage computation')
     parser.add_argument('--policy-lr', type=float, default=3e-4,
@@ -326,20 +326,10 @@ while global_step < args.total_timesteps:
         obs[step] = next_obs.copy()
 
         # ALGO LOGIC: put action logic here
+        # If we use those just for computing the GAE advantages, we should probably no_grad() it then
         values[step] = vf.forward(obs[step:step+1])
 
         with torch.no_grad():
-            # DEBUG: Tracking the logits
-            logits = pg(obs[step:step+1])
-            logits = logits[0][0].cpu().numpy()
-
-
-            if global_step % 100 == 0:
-                print( "\t### DEBUG: Logits @ step %d: " % global_step, logits)
-                writer.add_histogram( "debug/logits", logits, global_step)
-                print( "\t# DEBUG: Logits")
-                print( "\t", logits)
-
             action, logproba = pg.get_action(obs[step:step+1])
 
         actions[step] = action.data.cpu().numpy()[0]
@@ -440,16 +430,18 @@ while global_step < args.total_timesteps:
     # Optimizing value network
     for i_epoch in range(args.update_epochs):
         # Resample values
-        values = vf.forward(obs).view(-1)
+        current_values = vf.forward(obs).view(-1)
 
         # Value loss clipping
         if args.clip_vloss:
-            v_loss_unclipped = ((values - returns) ** 2)
-            v_loss_clipped = (torch.clamp(values, -args.clip_coef, args.clip_coef) - returns)**2
+            # In case we no_grad the values above, we must remove the detach over here.
+            v_loss_unclipped = ((current_values - returns) ** 2)
+            v_loss_clipped = values.detach() + torch.clamp(current_values - values.detach(), -args.clip_coef, args.clip_coef)
+            v_loss_clipped = (v_loss_clipped - returns)**2
             v_loss_min = torch.min( v_loss_unclipped, v_loss_clipped)
             v_loss = .5 * v_loss_min.mean() # The .5 is not in the paper, but theoretically correct, right ?
         else:
-            v_loss = loss_fn(returns, values)
+            v_loss = loss_fn(returns, current_values)
 
         v_optimizer.zero_grad()
         v_loss.backward()

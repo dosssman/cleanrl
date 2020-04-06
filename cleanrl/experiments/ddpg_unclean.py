@@ -104,9 +104,6 @@ act_limit = env.action_space.high[0]
 assert isinstance(env.action_space, Box), "only continuous action space is supported"
 
 # ALGO LOGIC: initialize agent here:
-EPS = 1e-8
-LOG_STD_MAX = 2
-LOG_STD_MIN = -20
 
 # MODIFIED: Added noise functions for exploration, copied from Baselines
 # Based on http://math.stackexchange.com/questions/1287634/implementing-ornstein-uhlenbeck-in-matlab
@@ -148,7 +145,7 @@ class AdaptiveParamNoiseSpec(object):
         fmt = 'AdaptiveParamNoiseSpec(initial_stddev={}, desired_action_stddev={}, adoption_coefficient={})'
         return fmt.format(self.initial_stddev, self.desired_action_stddev, self.adoption_coefficient)
 
-class OrnsteinUhlenbeckActionNoise():
+class OrnsteinUhlenbeckActionNoise(object):
     def __init__(self, mu, sigma, theta=.15, dt=1e-2, x0=None):
         self.theta = theta
         self.mu = mu
