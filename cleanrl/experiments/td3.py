@@ -55,21 +55,23 @@ if __name__ == "__main__":
     # THIS becomes useless in TD3
     # parser.add_argument('--target-update-interval', type=int, default=1,
     #                     help="the timesteps it takes to update the target network")
-    parser.add_argument('--batch-size', type=int, default=100,
+    parser.add_argument('--batch-size', type=int, default=256,
                         help="the batch size of sample from the reply memory")
     parser.add_argument('--tau', type=float, default=0.005,
                         help="target smoothing coefficient (default: 0.005)")
-    parser.add_argument('--start-steps', type=int, default=int(1e4),
+    parser.add_argument('--start-steps', type=int, default=int(25e3),
                         help='initial random exploration step count')
     parser.add_argument('--update-delay', type=int, default=2,
                         help='Delay in timestep for actor and critic updates (?)')
+    parser.add_argument('--compensate-update-delay', default=False, action="store_true",
+                        help='If enabled, will do "udpdate_delay" updates to the policy to compensate for the lack of updates.')
 
     # NOTE: This relates to the noise of the action during policy iteration
-    parser.add_argument('--noise-type', type=str, choices=["normal", "ou", "param", "adapt-param"], default="normal",
+    parser.add_argument('--noise-type', type=str, choices=["normal", "ou", "adapt-param"], default="normal",
                         help='type of noise to be used when sampling exploratiry actions')
     parser.add_argument('--noise-mean', type=float, default=0.0,
                         help="mean for the noise process")
-    parser.add_argument('--noise-std', type=float, default=0.2,
+    parser.add_argument('--noise-std', type=float, default=0.1,
                         help="standard deviation of the noise process")
     parser.add_argument('--param-noise-adapt-interval', type=int, default=50,
                         help="Defines the updated interval we adapt the std of the AdaptiveParamNoiseSpec")
@@ -97,7 +99,7 @@ if __name__ == "__main__":
 
     # TODO: Remove this trash latter
     # Neural Network Parametrization
-    parser.add_argument('--hidden-sizes', nargs='+', type=int, default=[256,128,80])
+    parser.add_argument('--hidden-sizes', nargs='+', type=int, default=[256,256])
 
     # TODO: Remove this trash once everything works as supposed
     parser.add_argument('--notb', action='store_true',
@@ -191,9 +193,6 @@ if args.noise_type == "normal":
     noise_process = lambda: NormalActionNoise( np.ones( output_shape) * args.noise_mean, np.ones(output_shape) * float(args.noise_std))()
 elif args.noise_type == "ou":
     noise_process = OrnsteinUhlenbeckActionNoise( np.ones(output_shape) * args.noise_mean, np.ones(output_shape) * float(args.noise_std))
-elif args.noise_type == "param":
-    # Naive version: just sample a single noise value and add it to all the weights in the network
-    noise_process = lambda: NormalActionNoise(np.ones(1) * args.noise_mean, np.ones(1) * args.noise_std)()
 elif args.noise_type == "adapt-param":
     # x is the shape
     adaptive_param_noise = AdaptiveParamNoiseSpec( args.noise_std, args.noise_std)
@@ -226,8 +225,7 @@ class Policy(nn.Module):
 
         # TODO: Add squashing like mechanism for action bound inforcing
         self.fc_mu = nn.Linear(args.hidden_sizes[-1], output_shape)
-        if args.layer_norm:
-            self.mu_ln = nn.LayerNorm(output_shape) # Probably not that helpful since passed to tanh (?)
+
         self.tanh_mu = nn.Tanh()
 
     def forward(self, x):
@@ -236,15 +234,14 @@ class Policy(nn.Module):
             x = preprocess_obs_fn(x)
 
         for layer_idx, layer in enumerate(self.layers):
-            x = F.relu(layer(x))
+            x = layer(x)
 
             if args.layer_norm:
                 x = self.layer_norms[layer_idx](x)
 
-        mus = self.fc_mu(x)
+            x = F.relu(x)
 
-        if args.layer_norm:
-            mus = self.mu_ln(mus)
+        mus = self.fc_mu(x)
 
         return self.tanh_mu( mus)
 
@@ -274,9 +271,12 @@ class QValue(nn.Module):
         x = torch.cat([x,a], 1)
 
         for layer_idx, layer in enumerate(self.layers[:-1]):
-            x = F.relu(layer(x))
+            x = layer(x)
+
             if args.layer_norm:
                 x = self.layer_norms[layer_idx](x)
+
+            x = F.relu(x)
 
         return self.layers[-1](x)
 
@@ -311,9 +311,7 @@ pg_target = Policy().to(device)
 
 # Setup all the necessary to enable parameter space noising method,
 # with both naive and adaptive version
-if args.noise_type == "param":
-    pg_exploration = Policy().to(device)
-elif args.noise_type == "adapt-param":
+if args.noise_type == "adapt-param":
     pg_exploration = Policy().to(device)
     pg_adaptive_noise = Policy().to(device)
 
@@ -331,7 +329,7 @@ def update_target_value(vf, vf_target, tau):
 # Sync weights of the QValues
 # Setting tau to 1.0 is equivalent to Hard Update
 update_target_value(qf1, qf1_target, 1.0)
-update_target_value(qf2, qf1_target, 1.0)
+update_target_value(qf2, qf2_target, 1.0)
 update_target_value(pg, pg_target, 1.0)
 
 # TODO: Separate learning rate for policy and value func.
@@ -357,7 +355,7 @@ if args.prod_mode:
     wandb.save(os.path.abspath(__file__))
 
 global_step = 0
-global_iter = 0
+global_iter = 0 # THis does not make much sense because
 global_episode = 0
 
 while global_step < args.total_timesteps:
@@ -371,20 +369,7 @@ while global_step < args.total_timesteps:
     # SPECIAL: In case we use parameter space noise, we need to copy the current
     # actor network and and noise up its weights, then use it to sample
     # TODO: Also, in case we still using action_space.sample(), do not copy weights etc...
-    if args.noise_type == "param":
-        p_optimizer.zero_grad()# Just for safety
-        pg_exploration.load_state_dict( pg.state_dict()) # Copy current weight to exploratory policy
-
-        # NAIVE version: No adaptive parameter noise as in the paper, just adding
-        # the same noise to all the weights, sampled from a Gaussian Noise
-        # NOITE: When using Naive method for param noise, too big noise-std will results in action always being [1.] * act_shape
-        noise = noise_fn()[0]
-
-        with torch.no_grad():
-            for param in pg_exploration.parameters():
-                param += noise
-
-    elif args.noise_type == "adapt-param":
+    if args.noise_type == "adapt-param":
         # TODO: Generate a random noise for each of the individual weights (bias included it seems)
         p_optimizer.zero_grad()# Just for safety
         pg_exploration.load_state_dict( pg.state_dict()) # Copy current weight to exploratory policy
@@ -402,7 +387,6 @@ while global_step < args.total_timesteps:
 
         # ALGO LOGIC: put action logic here
         if global_step > args.start_steps:
-
             with torch.no_grad():
 
                 if args.noise_type in ["ou", "normal"]:
@@ -410,7 +394,7 @@ while global_step < args.total_timesteps:
 
                     # NOTE: This is already preconfigured to support a specific noise function
                     action += noise_fn()
-                elif args.noise_type in ["param","adapt-param"]:
+                elif args.noise_type in ["adapt-param"]:
                     action = pg_exploration.forward([obs]).tolist()[0]
                 else:
                     raise NotImplementedError
@@ -429,88 +413,95 @@ while global_step < args.total_timesteps:
         train_episode_return += rew
         train_episode_length += 1
 
-        if done:
-            # ALGO LOGIC: training.
-            if global_step > args.start_steps:
-                for iter in range(train_episode_length): # As much updates as there was steps in the episode
-                    global_iter += 1
+        # ALGO LOGIC: training.
+        if global_step > args.batch_size:
+            global_iter += 1
 
-                    observation_batch, action_batch, reward_batch, \
-                        next_observation_batch, terminals_batch = buffer.sample(args.batch_size)
+            observation_batch, action_batch, reward_batch, \
+                next_observation_batch, terminals_batch = buffer.sample(args.batch_size)
 
-                    # Q function losses and update
+            # Q function losses and update
+            with torch.no_grad():
+                next_mus = pg_target.forward(next_observation_batch)
+                # As per the paper, we also noisy up the next_mus
+                action = pg.forward([obs]).tolist()[0]
+
+                next_mus_noise = args.noise_std_target * np.random.randn(output_shape)
+
+                # Clipping the noises for next_mus and apply the noise to next_mus
+                np.clip(next_mus_noise, -args.noise_clip_coef, args.noise_clip_coef, next_mus_noise)
+                next_mus += torch.Tensor(next_mus_noise).to(device)
+                next_mus.clamp_( -act_limit, act_limit)
+
+                qf1_next_target = qf1_target.forward(next_observation_batch, next_mus).view(-1)
+                qf2_next_target = qf2_target.forward(next_observation_batch, next_mus).view(-1)
+                min_qf_next_target = torch.min(qf1_next_target,qf2_next_target)
+
+                q_backup = torch.Tensor(reward_batch).to(device) + \
+                    (1 - torch.Tensor(terminals_batch).to(device)) * args.gamma * \
+                    min_qf_next_target
+
+            qf1_values = qf1.forward(observation_batch, action_batch).view(-1)
+            qf2_values = qf2.forward(observation_batch, action_batch).view(-1)
+
+            qf1_loss = mse_loss_fn(qf1_values, q_backup)
+            qf2_loss = mse_loss_fn(qf2_values, q_backup)
+            qf_loss = (qf1_loss + qf2_loss).mean()
+
+            q_optimizer.zero_grad()
+            qf_loss.backward()
+            q_optimizer.step()
+
+
+            # Updates the target network
+            # if global_iter > 0 and global_iter % args.target_update_interval == 0:
+            if global_iter > 0 and global_iter % args.update_delay == 0:
+
+                update_range = 1
+                if args.compensate_update_delay:
+                    update_range = args.update_delay
+
+                for _ in range(update_range):
+                    # Policy loss and update
+                    resampled_mus = pg.forward(observation_batch)
+                    # NOTE: The paper uses
+                    qf1_mus = qf1(observation_batch, resampled_mus).view(-1)
+                    qf2_mus = qf2(observation_batch, resampled_mus).view(-1)
+                    min_qf_mus = torch.min(qf1_mus, qf2_mus)
+
+                    policy_loss = - min_qf_mus.mean()
+
+                    p_optimizer.zero_grad()
+                    policy_loss.backward()
+                    p_optimizer.step()
+
+                    update_target_value(qf1, qf1_target, args.tau)
+                    update_target_value(qf2, qf2_target, args.tau)
+                    update_target_value(pg, pg_target, args.tau)
+
+            # Updaing the std of the AdaptiveParamNoiseSpec
+            if args.noise_type == "adapt-param":
+                if global_iter > 0 and global_iter % args.param_noise_adapt_interval == 0:
+                    # First, perturb the current network again
+                    p_optimizer.zero_grad()# Just for safety
+                    pg_adaptive_noise.load_state_dict( pg.state_dict())
+
                     with torch.no_grad():
-                        next_mus = pg_target.forward(next_observation_batch)
-                        # As per the paper, we also noisy up the next_mus
-                        action = pg.forward([obs]).tolist()[0]
-
-                        next_mus_noise = args.noise_std_target * np.random.randn(output_shape)
-
-                        # Clipping the noises for next_mus and apply the noise to next_mus
-                        np.clip(next_mus_noise, -args.noise_clip_coef, args.noise_clip_coef, next_mus_noise)
-                        next_mus += torch.Tensor(next_mus_noise).to(device)
-
-                        qf1_next_target = qf1_target.forward(next_observation_batch, next_mus).view(-1)
-                        qf2_next_target = qf1_target.forward(next_observation_batch, next_mus).view(-1)
-                        min_qf_next_target = torch.min(qf1_next_target,qf2_next_target)
-
-                        q_backup = torch.Tensor(reward_batch).to(device) + \
-                            (1 - torch.Tensor(terminals_batch).to(device)) * args.gamma * \
-                            min_qf_next_target
-
-                    qf1_values = qf1.forward(observation_batch, action_batch).view(-1)
-                    qf2_values = qf2.forward(observation_batch, action_batch).view(-1)
-
-                    qf1_loss = mse_loss_fn(qf1_values, q_backup)
-                    qf2_loss = mse_loss_fn(qf2_values, q_backup)
-                    qf_loss = (qf1_loss + qf2_loss).mean()
-
-                    q_optimizer.zero_grad()
-                    qf_loss.backward()
-                    q_optimizer.step()
-
-
-                    # Updates the target network
-                    # if global_iter > 0 and global_iter % args.target_update_interval == 0:
-                    if global_iter > 0 and global_iter % args.update_delay == 0:
-                        # Policy loss and update
-                        resampled_mus = pg.forward(observation_batch)
-                        # NOTE: The paper uses
-                        qf1_mus = qf1(observation_batch, resampled_mus).view(-1)
-                        qf2_mus = qf2(observation_batch, resampled_mus).view(-1)
-                        min_qf_mus = torch.min(qf1_mus, qf2_mus)
-
-                        policy_loss = - min_qf_mus.mean()
-
-                        p_optimizer.zero_grad()
-                        policy_loss.backward()
-                        p_optimizer.step()
-
-                        update_target_value(qf1, qf1_target, args.tau)
-                        update_target_value(qf2, qf2_target, args.tau)
-                        update_target_value(pg, pg_target, args.tau)
-
-                    # Updaing the std of the AdaptiveParamNoiseSpec
-                    if args.noise_type == "adapt-param":
-                        if global_iter > 0 and global_iter % args.param_noise_adapt_interval == 0:
-                            # First, perturb the current network again
-                            p_optimizer.zero_grad()# Just for safety
-                            pg_adaptive_noise.load_state_dict( pg.state_dict())
-
-                            with torch.no_grad():
-                                for param in pg_adaptive_noise.parameters():
-                                 # Generate noise corresponding to the shape of the layer and add it
-                                    # TODO: More rigorous debug. Can we actually see the matrix + matrix addition of the noise ?
-                                    param.add_(torch.Tensor(noise_fn(param.shape)).to(device))
+                        for param in pg_adaptive_noise.parameters():
+                            # Generate noise corresponding to the shape of the layer and add it
+                            # TODO: More rigorous debug. Can we actually see the matrix + matrix addition of the noise ?
+                            param.add_(torch.Tensor(noise_fn(param.shape)).to(device))
 
                             distance = mse_loss_fn( pg(observation_batch), pg_adaptive_noise(observation_batch))
 
                             adaptive_param_noise.adapt(distance)
 
-                    if global_iter > 0 and global_iter % 1000 == 0:
-                        print("Iter %d: PLoss: %.6f -- QLoss: %.6f -- Train Return: %.6f"
-                            % (global_iter, policy_loss.item(), qf_loss.item(), train_episode_return))
+            if global_step > args.batch_size and global_iter % 1000 == 0:
+                print("Iter %d: PLoss: %.6f -- QLoss: %.6f -- Train Return: %.6f"
+                % (global_iter, policy_loss.item(), qf_loss.item(), train_episode_return))
 
+        if done:
+            if global_step > args.batch_size:
                 if not args.notb:
                     # Logging training stats
                     writer.add_scalar("charts/episode_reward", train_episode_return, global_iter)
