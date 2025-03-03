@@ -87,14 +87,12 @@ class Tuner:
             for seed in range(num_seeds):
                 normalized_scores = []
                 for env_id in self.target_scores.keys():
-                    sys.argv = algo_command + [f"--env-id={env_id}", f"--seed={seed}", "--track=False"]
+                    sys.argv = algo_command + [f"--env-id={env_id}", f"--seed={seed}"]
                     with HiddenPrints():
                         experiment = runpy.run_path(path_name=self.script, run_name="__main__")
 
                     # read metric from tensorboard
-                    ea = event_accumulator.EventAccumulator(
-                        f"runs/{experiment['run_name']}",
-                    )
+                    ea = event_accumulator.EventAccumulator(f"runs/{experiment['run_name']}")
                     ea.Reload()
                     metric_values = [
                         scalar_event.value for scalar_event in ea.Scalars(self.metric)[-self.metric_last_n_average_window :]

@@ -29,6 +29,7 @@ All our PPO implementations below are augmented with the same code-level optimiz
 | :material-github: [`ppo_atari_lstm.py`](https://github.com/vwxyzjn/cleanrl/blob/master/cleanrl/ppo_atari_lstm.py), :material-file-document: [docs](/rl-algorithms/ppo/#ppo_atari_lstmpy) | For Atari games using LSTM without stacked frames. |
 | :material-github: [`ppo_atari_envpool.py`](https://github.com/vwxyzjn/cleanrl/blob/master/cleanrl/ppo_atari_envpool.py), :material-file-document: [docs](/rl-algorithms/ppo/#ppo_atari_envpoolpy) | Uses the blazing fast Envpool Atari vectorized environment. |
 | :material-github: [`ppo_atari_envpool_xla_jax.py`](https://github.com/vwxyzjn/cleanrl/blob/master/cleanrl/ppo_atari_envpool_xla_jax.py),  :material-file-document: [docs](/rl-algorithms/ppo/#ppo_atari_envpool_xla_jaxpy) | Uses the blazing fast Envpool Atari vectorized environment with EnvPool's XLA interface and JAX. |
+| :material-github: [`ppo_atari_envpool_xla_jax_scan.py`](https://github.com/vwxyzjn/cleanrl/blob/master/cleanrl/ppo_atari_envpool_xla_jax_scan.py),  :material-file-document: [docs](/rl-algorithms/ppo/#ppo_atari_envpool_xla_jax_scanpy) | Uses native `jax.scan` as opposed to python loops for faster compilation time. |
 | :material-github: [`ppo_procgen.py`](https://github.com/vwxyzjn/cleanrl/blob/master/cleanrl/ppo_procgen.py), :material-file-document: [docs](/rl-algorithms/ppo/#ppo_procgenpy) | For the procgen environments. |
 | :material-github: [`ppo_atari_multigpu.py`](https://github.com/vwxyzjn/cleanrl/blob/master/cleanrl/ppo_atari_multigpu.py),  :material-file-document: [docs](/rl-algorithms/ppo/#ppo_atari_multigpupy)| For Atari environments leveraging multi-GPUs. |
 | :material-github: [`ppo_pettingzoo_ma_atari.py`](https://github.com/vwxyzjn/cleanrl/blob/master/cleanrl/ppo_pettingzoo_ma_atari.py),  :material-file-document: [docs](/rl-algorithms/ppo/#ppo_pettingzoo_ma_ataripy)| For Pettingzoo's multi-agent Atari environments. |
@@ -45,11 +46,20 @@ The [ppo.py](https://github.com/vwxyzjn/cleanrl/blob/master/cleanrl/ppo.py) has 
 
 ### Usage
 
-```bash
-poetry install
-python cleanrl/ppo.py --help
-python cleanrl/ppo.py --env-id CartPole-v1
-```
+=== "poetry"
+
+    ```bash
+    poetry install
+    poetry run python cleanrl/ppo.py --help
+    poetry run python cleanrl/ppo.py --env-id CartPole-v1
+    ```
+
+=== "pip"
+
+    ```bash
+    python cleanrl/ppo.py --help
+    python cleanrl/ppo.py --env-id CartPole-v1
+    ```
 
 ### Explanation of the logged metrics
 
@@ -90,32 +100,33 @@ Running `python cleanrl/ppo.py` will automatically record various metrics such a
 
 To run benchmark experiments, see :material-github: [benchmark/ppo.sh](https://github.com/vwxyzjn/cleanrl/blob/master/benchmark/ppo.sh). Specifically, execute the following command:
 
-<script src="https://emgithub.com/embed.js?target=https%3A%2F%2Fgithub.com%2Fvwxyzjn%2Fcleanrl%2Fblob%2Fmaster%2Fbenchmark%2Fppo.sh%23L4-L9&style=github&showBorder=on&showLineNumbers=on&showFileMeta=on&showCopy=on"></script>
-
+``` title="benchmark/ppo.sh" linenums="1"
+--8<-- "benchmark/ppo.sh:3:8"
+```
 
 Below are the average episodic returns for `ppo.py`. To ensure the quality of the implementation, we compared the results against `openai/baselies`' PPO.
 
 | Environment      | `ppo.py` | `openai/baselies`' PPO (Huang et al., 2022)[^1]
 | ----------- | ----------- | ----------- |
-| CartPole-v1      | 492.40 ± 13.05     |497.54 ± 4.02  |
-| Acrobot-v1   | -89.93 ± 6.34     |  -81.82 ± 5.58 |
+| CartPole-v1      | 490.04 ± 6.12     |497.54 ± 4.02  |
+| Acrobot-v1       | -86.36 ± 1.32     |  -81.82 ± 5.58 |
 | MountainCar-v0   | -200.00 ± 0.00         | -200.00 ± 0.00 |
 
 
 Learning curves:
 
-<div class="grid-container">
-<img src="../ppo/CartPole-v1.png">
+``` title="benchmark/ppo_plot.sh" linenums="1"
+--8<-- "benchmark/ppo_plot.sh::9"
+```
 
-<img src="../ppo/Acrobot-v1.png">
 
-<img src="../ppo/MountainCar-v0.png">
-</div>
+<img loading="lazy" src="https://huggingface.co/datasets/cleanrl/benchmark/resolve/main/benchmark/pr-424/ppo.png">
+<img loading="lazy" src="https://huggingface.co/datasets/cleanrl/benchmark/resolve/main/benchmark/pr-424/ppo-time.png">
 
 
 Tracked experiments and game play videos:
 
-<iframe src="https://wandb.ai/openrlbenchmark/openrlbenchmark/reports/Classic-Control-CleanRL-s-PPO--VmlldzoxODU5MDY1" style="width:100%; height:500px" title="Classic-Control-CleanRL-s-PPO"></iframe>
+<iframe loading="lazy" src="https://wandb.ai/openrlbenchmark/openrlbenchmark/reports/Classic-Control-CleanRL-s-PPO--VmlldzoxODU5MDY1" style="width:100%; height:500px" title="Classic-Control-CleanRL-s-PPO"></iframe>
 
 ### Video tutorial
 
@@ -136,11 +147,21 @@ The [ppo_atari.py](https://github.com/vwxyzjn/cleanrl/blob/master/cleanrl/ppo_at
 
 ### Usage
 
-```bash
-poetry install --with atari
-python cleanrl/ppo_atari.py --help
-python cleanrl/ppo_atari.py --env-id BreakoutNoFrameskip-v4
-```
+=== "poetry"
+
+    ```bash
+    poetry install -E atari
+    poetry run python cleanrl/ppo_atari.py --help
+    poetry run python cleanrl/ppo_atari.py --env-id BreakoutNoFrameskip-v4
+    ```
+
+=== "pip"
+
+    ```bash
+    pip install -r requirements/requirements-atari.txt
+    python cleanrl/ppo_atari.py --help
+    python cleanrl/ppo_atari.py --env-id BreakoutNoFrameskip-v4
+    ```
 
 ### Explanation of the logged metrics
 
@@ -166,32 +187,33 @@ See [related docs](/rl-algorithms/ppo/#explanation-of-the-logged-metrics) for `p
 
 To run benchmark experiments, see :material-github: [benchmark/ppo.sh](https://github.com/vwxyzjn/cleanrl/blob/master/benchmark/ppo.sh). Specifically, execute the following command:
 
-<script src="https://emgithub.com/embed.js?target=https%3A%2F%2Fgithub.com%2Fvwxyzjn%2Fcleanrl%2Fblob%2Fmaster%2Fbenchmark%2Fppo.sh%23L10-L16&style=github&showBorder=on&showLineNumbers=on&showFileMeta=on&showCopy=on"></script>
+``` title="benchmark/ppo.sh" linenums="1"
+--8<-- "benchmark/ppo.sh:14:19"
+```
 
 
 Below are the average episodic returns for `ppo_atari.py`. To ensure the quality of the implementation, we compared the results against `openai/baselies`' PPO.
 
 | Environment      | `ppo_atari.py` | `openai/baselies`' PPO (Huang et al., 2022)[^1]
 | ----------- | ----------- | ----------- |
-| BreakoutNoFrameskip-v4      | 416.31 ± 43.92     | 406.57 ± 31.554  |
-| PongNoFrameskip-v4   | 20.59 ± 0.35    |  20.512 ± 0.50 |
-| BeamRiderNoFrameskip-v4   | 2445.38 ± 528.91         | 2642.97 ± 670.37 |
+| BreakoutNoFrameskip-v4      | 414.66 ± 28.09     | 406.57 ± 31.554  |
+| PongNoFrameskip-v4   | 20.36 ± 0.20    |  20.512 ± 0.50 |
+| BeamRiderNoFrameskip-v4   | 1915.93 ± 484.58         | 2642.97 ± 670.37 |
 
 
 Learning curves:
 
-<div class="grid-container">
-<img src="../ppo/BreakoutNoFrameskip-v4.png">
+``` title="benchmark/ppo_plot.sh" linenums="1"
+--8<-- "benchmark/ppo_plot.sh:11:19"
+```
 
-<img src="../ppo/PongNoFrameskip-v4.png">
-
-<img src="../ppo/BeamRiderNoFrameskip-v4.png">
-</div>
+<img loading="lazy" src="https://huggingface.co/datasets/cleanrl/benchmark/resolve/main/benchmark/pr-424/ppo_atari.png">
+<img loading="lazy" src="https://huggingface.co/datasets/cleanrl/benchmark/resolve/main/benchmark/pr-424/ppo_atari-time.png">
 
 
 Tracked experiments and game play videos:
 
-<iframe src="https://wandb.ai/openrlbenchmark/openrlbenchmark/reports/Atari-CleanRL-s-PPO--VmlldzoxNjk3NjYy" style="width:100%; height:500px" title="Atari-CleanRL-s-PPO"></iframe>
+<iframe loading="lazy" src="https://wandb.ai/openrlbenchmark/openrlbenchmark/reports/Atari-CleanRL-s-PPO--VmlldzoxNjk3NjYy" style="width:100%; height:500px" title="Atari-CleanRL-s-PPO"></iframe>
 
 ### Video tutorial
 
@@ -208,14 +230,48 @@ The [ppo_continuous_action.py](https://github.com/vwxyzjn/cleanrl/blob/master/cl
 * For continuous action space. Also implemented Mujoco-specific code-level optimizations
 * Works with the `Box` observation space of low-level features
 * Works with the `Box` (continuous) action space
+* adding experimental support for [Gymnasium](https://gymnasium.farama.org/)
+* 🧪 support `dm_control` environments via [Shimmy](https://github.com/Farama-Foundation/Shimmy)
+
+
+???+ warning
+
+    We are now recommending users to use [`rpo_continuous_action.py`](https://github.com/vwxyzjn/cleanrl/blob/master/cleanrl/rpo_continuous_action.py) instead of [`ppo_continuous_action.py`](https://github.com/vwxyzjn/cleanrl/blob/master/cleanrl/ppo_continuous_action.py) because `rpo_continuous_action.py` empirically performs better than `ppo_continuous_action.py` in 93% of the environments we tested. Please see [experiment results](/rl-algorithms/rpo/#experiment-results) for detailed analysis.
 
 ### Usage
 
-```bash
-poetry install --with atari
-python cleanrl/ppo_continuous_action.py --help
-python cleanrl/ppo_continuous_action.py --env-id Hopper-v2
-```
+=== "poetry"
+
+    ```bash
+    # mujoco v4 environments
+    poetry install -E mujoco
+    python cleanrl/ppo_continuous_action.py --help
+    python cleanrl/ppo_continuous_action.py --env-id Hopper-v4
+    # dm_control environments
+    poetry install -E "mujoco dm_control"
+    python cleanrl/ppo_continuous_action.py --env-id dm_control/cartpole-balance-v0
+    ```
+
+=== "pip"
+
+    ```bash
+    pip install -r requirements/requirements-mujoco.txt
+    python cleanrl/ppo_continuous_action.py --help
+    python cleanrl/ppo_continuous_action.py --env-id Hopper-v4
+    pip install -r requirements/requirements-dm_control.txt
+    python cleanrl/ppo_continuous_action.py --env-id dm_control/cartpole-balance-v0
+    ```
+
+???+ warning "dm_control installation issue"
+
+    If you run into error like `AttributeError: 'GLFWContext' object has no attribute '_context'` in Linux, it's because the rendering dependencies are not installed properly. To fix it, try running
+
+    ```
+    sudo apt-get update && sudo apt-get -y install libgl1-mesa-glx libosmesa6 libglfw3 
+    ```
+
+    See [https://github.com/deepmind/dm_control#rendering](https://github.com/deepmind/dm_control#rendering) for more detail.
+
 
 ### Explanation of the logged metrics
 
@@ -242,33 +298,105 @@ See [related docs](/rl-algorithms/ppo/#explanation-of-the-logged-metrics) for `p
 
 To run benchmark experiments, see :material-github: [benchmark/ppo.sh](https://github.com/vwxyzjn/cleanrl/blob/master/benchmark/ppo.sh). Specifically, execute the following command:
 
-<script src="https://emgithub.com/embed.js?target=https%3A%2F%2Fgithub.com%2Fvwxyzjn%2Fcleanrl%2Fblob%2Fmaster%2Fbenchmark%2Fppo.sh%23L31-L38&style=github&showBorder=on&showLineNumbers=on&showFileMeta=on&showCopy=on"></script>
 
+MuJoCo v4
 
+``` title="benchmark/ppo.sh" linenums="1"
+--8<-- "benchmark/ppo.sh:25:30"
+```
 
-Below are the average episodic returns for `ppo_continuous_action.py`. To ensure the quality of the implementation, we compared the results against `openai/baselies`' PPO.
-
-| Environment      | `ppo_continuous_action.py` | `openai/baselies`' PPO (Huang et al., 2022)[^1]
-| ----------- | ----------- | ----------- |
-| Hopper-v2      | 2231.12 ± 656.72     | 2518.95 ± 850.46  |
-| Walker2d-v2   | 3050.09 ± 1136.21    |  3208.08 ± 1264.37 |
-| HalfCheetah-v2   | 1822.82 ± 928.11         | 2152.26 ± 1159.84 |
-
+{!benchmark/ppo_continuous_action.md!}
 
 Learning curves:
 
-<div class="grid-container">
-<img src="../ppo/Hopper-v2.png">
+``` title="benchmark/ppo_plot.sh" linenums="1"
+--8<-- "benchmark/ppo_plot.sh:11:19"
+```
 
-<img src="../ppo/Walker2d-v2.png">
-
-<img src="../ppo/HalfCheetah-v2.png">
-</div>
-
+<img loading="lazy" src="https://huggingface.co/datasets/cleanrl/benchmark/resolve/main/benchmark/pr-424/ppo_continuous_action.png">
+<img loading="lazy" src="https://huggingface.co/datasets/cleanrl/benchmark/resolve/main/benchmark/pr-424/ppo_continuous_action-time.png">
 
 Tracked experiments and game play videos:
 
-<iframe src="https://wandb.ai/openrlbenchmark/openrlbenchmark/reports/MuJoCo-CleanRL-s-PPO--VmlldzoxODAwNjkw" style="width:100%; height:500px" title="MuJoCo-CleanRL-s-PPO"></iframe>
+<iframe loading="lazy" src="https://wandb.ai/costa-huang/cleanRL/reports/MuJoCo-v4-CleanRL-s-PPO--VmlldzozMTIxOTI5" style="width:100%; height:500px" title="MuJoCo-CleanRL-s-PPO"></iframe>
+
+
+
+``` title="benchmark/ppo.sh" linenums="1"
+--8<-- "benchmark/ppo.sh:36:41"
+```
+
+Below are the average episodic returns for `ppo_continuous_action.py` in `dm_control` environments.
+
+|                                       | ppo_continuous_action ({'tag': ['v1.0.0-13-gcbd83f6']})   |
+|:--------------------------------------|:----------------------------------------------------------|
+| dm_control/acrobot-swingup-v0         | 27.84 ± 9.25                                              |
+| dm_control/acrobot-swingup_sparse-v0  | 1.60 ± 1.17                                               |
+| dm_control/ball_in_cup-catch-v0       | 900.78 ± 5.26                                             |
+| dm_control/cartpole-balance-v0        | 855.47 ± 22.06                                            |
+| dm_control/cartpole-balance_sparse-v0 | 999.93 ± 0.10                                             |
+| dm_control/cartpole-swingup-v0        | 640.86 ± 11.44                                            |
+| dm_control/cartpole-swingup_sparse-v0 | 51.34 ± 58.35                                             |
+| dm_control/cartpole-two_poles-v0      | 203.86 ± 11.84                                            |
+| dm_control/cartpole-three_poles-v0    | 164.59 ± 3.23                                             |
+| dm_control/cheetah-run-v0             | 432.56 ± 82.54                                            |
+| dm_control/dog-stand-v0               | 307.79 ± 46.26                                            |
+| dm_control/dog-walk-v0                | 120.05 ± 8.80                                             |
+| dm_control/dog-trot-v0                | 76.56 ± 6.44                                              |
+| dm_control/dog-run-v0                 | 60.25 ± 1.33                                              |
+| dm_control/dog-fetch-v0               | 34.26 ± 2.24                                              |
+| dm_control/finger-spin-v0             | 590.49 ± 171.09                                           |
+| dm_control/finger-turn_easy-v0        | 180.42 ± 44.91                                            |
+| dm_control/finger-turn_hard-v0        | 61.40 ± 9.59                                              |
+| dm_control/fish-upright-v0            | 516.21 ± 59.52                                            |
+| dm_control/fish-swim-v0               | 87.91 ± 6.83                                              |
+| dm_control/hopper-stand-v0            | 2.72 ± 1.72                                               |
+| dm_control/hopper-hop-v0              | 0.52 ± 0.48                                               |
+| dm_control/humanoid-stand-v0          | 6.59 ± 0.18                                               |
+| dm_control/humanoid-walk-v0           | 1.73 ± 0.03                                               |
+| dm_control/humanoid-run-v0            | 1.11 ± 0.04                                               |
+| dm_control/humanoid-run_pure_state-v0 | 0.98 ± 0.03                                               |
+| dm_control/humanoid_CMU-stand-v0      | 4.79 ± 0.18                                               |
+| dm_control/humanoid_CMU-run-v0        | 0.88 ± 0.05                                               |
+| dm_control/manipulator-bring_ball-v0  | 0.50 ± 0.29                                               |
+| dm_control/manipulator-bring_peg-v0   | 1.80 ± 1.58                                               |
+| dm_control/manipulator-insert_ball-v0 | 35.50 ± 13.04                                             |
+| dm_control/manipulator-insert_peg-v0  | 60.40 ± 21.76                                             |
+| dm_control/pendulum-swingup-v0        | 242.81 ± 245.95                                           |
+| dm_control/point_mass-easy-v0         | 273.95 ± 362.28                                           |
+| dm_control/point_mass-hard-v0         | 143.25 ± 38.12                                            |
+| dm_control/quadruped-walk-v0          | 239.03 ± 66.17                                            |
+| dm_control/quadruped-run-v0           | 180.44 ± 32.91                                            |
+| dm_control/quadruped-escape-v0        | 28.92 ± 11.21                                             |
+| dm_control/quadruped-fetch-v0         | 193.97 ± 22.20                                            |
+| dm_control/reacher-easy-v0            | 626.28 ± 15.51                                            |
+| dm_control/reacher-hard-v0            | 443.80 ± 9.64                                             |
+| dm_control/stacker-stack_2-v0         | 75.68 ± 4.83                                              |
+| dm_control/stacker-stack_4-v0         | 68.02 ± 4.02                                              |
+| dm_control/swimmer-swimmer6-v0        | 158.19 ± 10.22                                            |
+| dm_control/swimmer-swimmer15-v0       | 131.94 ± 0.88                                             |
+| dm_control/walker-stand-v0            | 564.46 ± 235.22                                           |
+| dm_control/walker-walk-v0             | 392.51 ± 56.25                                            |
+| dm_control/walker-run-v0              | 125.92 ± 10.01                                            |
+
+Note that the dm_control/lqr-lqr_2_1-v0 dm_control/lqr-lqr_6_2-v0 environments are never terminated or truncated. See https://wandb.ai/openrlbenchmark/cleanrl/runs/3tm00923 and https://wandb.ai/openrlbenchmark/cleanrl/runs/1z9us07j as an example.
+
+Learning curves:
+
+![](../ppo/ppo_continuous_action_gymnasium_dm_control.png)
+
+Tracked experiments and game play videos:
+
+<iframe loading="lazy" src="https://wandb.ai/openrlbenchmark/openrlbenchmark/reports/dm_control-CleanRL-s-PPO-part-1---VmlldzozMTI2MjE2" style="width:100%; height:500px" title="dm_control-CleanRL-s-PPO-part-1"></iframe>
+<iframe loading="lazy" src="https://wandb.ai/openrlbenchmark/openrlbenchmark/reports/dm_control-CleanRL-s-PPO-part-2---VmlldzozMTI2MjI1" style="width:100%; height:500px" title="dm_control-CleanRL-s-PPO-part-2"></iframe>
+
+
+???+ info
+
+    In the gymnasium environments, we use the v4 mujoco environments, which roughly results in the same performance as the v2 mujoco environments.
+
+    ![](../ppo/ppo_continuous_action_v2_vs_v4.png)
+
 
 ### Video tutorial
 
@@ -276,8 +404,6 @@ If you'd like to learn `ppo_continuous_action.py` in-depth, consider checking ou
 
 
 <div style="text-align: center;"><iframe width="560" height="315" src="https://www.youtube.com/embed/BvZvx7ENZBw" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe></div>
-
-
 
 
 ## `ppo_atari_lstm.py`
@@ -290,11 +416,23 @@ The [ppo_atari_lstm.py](https://github.com/vwxyzjn/cleanrl/blob/master/cleanrl/p
 
 ### Usage
 
-```bash
-poetry install --with atari
-python cleanrl/ppo_atari_lstm.py --help
-python cleanrl/ppo_atari_lstm.py --env-id BreakoutNoFrameskip-v4
-```
+
+=== "poetry"
+
+    ```bash
+    poetry install -E atari
+    poetry run python cleanrl/ppo_atari_lstm.py --help
+    poetry run python cleanrl/ppo_atari_lstm.py --env-id BreakoutNoFrameskip-v4
+    ```
+
+=== "pip"
+
+    ```bash
+    pip install -r requirements/requirements-atari.txt
+    python cleanrl/ppo_atari_lstm.py --help
+    python cleanrl/ppo_atari_lstm.py --env-id BreakoutNoFrameskip-v4
+    ```
+
 
 ### Explanation of the logged metrics
 
@@ -318,8 +456,9 @@ To help test out the memory, we remove the 4 stacked frames from the observation
 
 To run benchmark experiments, see :material-github: [benchmark/ppo.sh](https://github.com/vwxyzjn/cleanrl/blob/master/benchmark/ppo.sh). Specifically, execute the following command:
 
-<script src="https://emgithub.com/embed.js?target=https%3A%2F%2Fgithub.com%2Fvwxyzjn%2Fcleanrl%2Fblob%2Fmaster%2Fbenchmark%2Fppo.sh%23L17-L23&style=github&showBorder=on&showLineNumbers=on&showFileMeta=on&showCopy=on"></script>
-
+``` title="benchmark/ppo.sh" linenums="1"
+--8<-- "benchmark/ppo.sh:47:52"
+```
 
 Below are the average episodic returns for `ppo_atari_lstm.py`. To ensure the quality of the implementation, we compared the results against `openai/baselies`' PPO.
 
@@ -333,18 +472,16 @@ Below are the average episodic returns for `ppo_atari_lstm.py`. To ensure the qu
 
 Learning curves:
 
-<div class="grid-container">
-<img src="../ppo/lstm/BreakoutNoFrameskip-v4.png">
+``` title="benchmark/ppo_plot.sh" linenums="1"
+--8<-- "benchmark/ppo_plot.sh:11:19"
+```
 
-<img src="../ppo/lstm/PongNoFrameskip-v4.png">
-
-<img src="../ppo/lstm/BeamRiderNoFrameskip-v4.png">
-</div>
-
+<img loading="lazy" src="https://huggingface.co/datasets/cleanrl/benchmark/resolve/main/benchmark/pr-424/ppo_atari_lstm.png">
+<img loading="lazy" src="https://huggingface.co/datasets/cleanrl/benchmark/resolve/main/benchmark/pr-424/ppo_atari_lstm-time.png">
 
 Tracked experiments and game play videos:
 
-<iframe src="https://wandb.ai/openrlbenchmark/openrlbenchmark/reports/Atari-CleanRL-s-PPO-LSTM--VmlldzoxODcxMzE4" style="width:100%; height:500px" title="Atari-CleanRL-s-PPO-LSTM"></iframe>
+<iframe loading="lazy" src="https://wandb.ai/openrlbenchmark/openrlbenchmark/reports/Atari-CleanRL-s-PPO-LSTM--VmlldzoxODcxMzE4" style="width:100%; height:500px" title="Atari-CleanRL-s-PPO-LSTM"></iframe>
 
 
 
@@ -374,11 +511,21 @@ The [ppo_atari_envpool.py](https://github.com/vwxyzjn/cleanrl/blob/master/cleanr
 
 ### Usage
 
-```bash
-poetry install --with envpool
-python cleanrl/ppo_atari_envpool.py --help
-python cleanrl/ppo_atari_envpool.py --env-id Breakout-v5
-```
+=== "poetry"
+
+    ```bash
+    poetry install -E envpool
+    poetry run python cleanrl/ppo_atari_envpool.py --help
+    poetry run python cleanrl/ppo_atari_envpool.py --env-id Breakout-v5
+    ```
+
+=== "pip"
+
+    ```bash
+    pip install -r requirements/requirements-envpool.txt
+    python cleanrl/ppo_atari_envpool.py --help
+    python cleanrl/ppo_atari_envpool.py --env-id Breakout-v5
+    ```
 
 ### Explanation of the logged metrics
 
@@ -392,39 +539,27 @@ See [related docs](/rl-algorithms/ppo/#explanation-of-the-logged-metrics) for `p
 
 To run benchmark experiments, see :material-github: [benchmark/ppo.sh](https://github.com/vwxyzjn/cleanrl/blob/master/benchmark/ppo.sh). Specifically, execute the following command:
 
-<script src="https://emgithub.com/embed.js?target=https%3A%2F%2Fgithub.com%2Fvwxyzjn%2Fcleanrl%2Fblob%2Fmaster%2Fbenchmark%2Fppo.sh%23L24-L30&style=github&showBorder=on&showLineNumbers=on&showFileMeta=on&showCopy=on"></script>
 
+``` title="benchmark/ppo.sh" linenums="1"
+--8<-- "benchmark/ppo.sh:58:63"
+```
 
-Below are the average episodic returns for `ppo_atari_envpool.py`. Notice it has the same sample efficiency as `ppo_atari.py`, but runs about 3x faster.
-
-
-
-| Environment      | `ppo_atari_envpool.py` (~80 mins) | `ppo_atari.py` (~220 mins)
-| ----------- | ----------- | ----------- |
-| BreakoutNoFrameskip-v4 |   389.57 ± 29.62    | 416.31 ± 43.92 
-| PongNoFrameskip-v4 | 20.55 ± 0.37   | 20.59 ± 0.35   
-| BeamRiderNoFrameskip-v4 |   2039.83 ± 1146.62 | 2445.38 ± 528.91  
-
-
+{!benchmark/ppo_atari_envpool.md!}
 
 
 Learning curves:
 
-<div class="grid-container">
-<img src="../ppo/Breakout.png">
-<img src="../ppo/Breakout-time.png">
+``` title="benchmark/ppo_plot.sh" linenums="1"
+--8<-- "benchmark/ppo_plot.sh:51:62"
+```
 
-<img src="../ppo/Pong.png">
-<img src="../ppo/Pong-time.png">
-
-<img src="../ppo/BeamRider.png">
-<img src="../ppo/BeamRider-time.png">
-</div>
+<img loading="lazy" src="https://huggingface.co/datasets/cleanrl/benchmark/resolve/main/benchmark/pr-424/ppo_atari_envpool.png">
+<img loading="lazy" src="https://huggingface.co/datasets/cleanrl/benchmark/resolve/main/benchmark/pr-424/ppo_atari_envpool-time.png">
 
 
 Tracked experiments and game play videos:
 
-<iframe src="https://wandb.ai/openrlbenchmark/openrlbenchmark/reports/Atari-CleanRL-s-PPO-Envpool--VmlldzoxODcxMzI3" style="width:100%; height:500px" title="Atari-CleanRL-s-PPO-Envpool"></iframe>
+<iframe loading="lazy" src="https://wandb.ai/openrlbenchmark/openrlbenchmark/reports/Atari-CleanRL-s-PPO-Envpool--VmlldzoxODcxMzI3" style="width:100%; height:500px" title="Atari-CleanRL-s-PPO-Envpool"></iframe>
 
 
 ## `ppo_atari_envpool_xla_jax.py`
@@ -457,12 +592,24 @@ The [ppo_atari_envpool_xla_jax.py](https://github.com/vwxyzjn/cleanrl/blob/maste
 
 ### Usage
 
-```bash
-poetry install -E "envpool jax"
-poetry run pip install --upgrade "jax[cuda]==0.3.17" -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
-python cleanrl/ppo_atari_envpool_xla_jax.py --help
-python cleanrl/ppo_atari_envpool_xla_jax.py --env-id Breakout-v5
-```
+=== "poetry"
+
+    ```bash
+    poetry install -E "envpool jax"
+    poetry run pip install --upgrade "jax[cuda11_cudnn82]==0.4.8" -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
+    poetry run python cleanrl/ppo_atari_envpool_xla_jax.py --help
+    poetry run python cleanrl/ppo_atari_envpool_xla_jax.py --env-id Breakout-v5
+    ```
+
+=== "pip"
+
+    ```bash
+    pip install -r requirements/requirements-envpool.txt
+    pip install -r requirements/requirements-jax.txt
+    pip install --upgrade "jax[cuda]==0.3.17" -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
+    python cleanrl/ppo_atari_envpool_xla_jax.py --help
+    python cleanrl/ppo_atari_envpool_xla_jax.py --env-id Breakout-v5
+    ```
 
 ### Explanation of the logged metrics
 
@@ -475,11 +622,14 @@ Additionally, we record the following metric:
 
 ???+ info
 
-    Note that we use `charts/avg_episodic_return` in place of `charts/episodic_return` and `charts/episodic_length` because under the EnvPool's XLA interface, we can only record fixed-shape metrics where as there could be a variable number of raw episodic returns / lengths. To resolve this challenge, we create variables (e.g., `returned_episode_returns`, `returned_episode_lengths`) to keep track of the *latest* episodic returns / lengths of each environment and average them for reporting purposes.
+    Note that we use `charts/avg_episodic_return` and `charts/avg_episodic_length` in place of `charts/episodic_return` and `charts/episodic_length` because under the EnvPool's XLA interface, we can only record fixed-shape metrics where as there could be a variable number of raw episodic returns / lengths. To resolve this challenge, we create variables (e.g., `returned_episode_returns`, `returned_episode_lengths`) to keep track of the *latest* episodic returns / lengths of each environment and average them for reporting purposes.
 
 ### Implementation details
 
-[ppo_atari_envpool_xla_jax.py](https://github.com/vwxyzjn/cleanrl/blob/master/cleanrl/ppo_atari_envpool_xla_jax.py) uses a customized `RecordEpisodeStatistics` to work with EnvPool's experimental [XLA interface](https://envpool.readthedocs.io/en/latest/content/xla_interface.html) but has the same other implementation details as `ppo_atari.py` (see [related docs](/rl-algorithms/ppo/#implementation-details_1)) except that [ppo_atari_envpool_xla_jax.py](https://github.com/vwxyzjn/cleanrl/blob/master/cleanrl/ppo_atari_envpool_xla_jax.py) does not use the value function clipping for simplicity. 
+[ppo_atari_envpool_xla_jax.py](https://github.com/vwxyzjn/cleanrl/blob/master/cleanrl/ppo_atari_envpool_xla_jax.py) uses the same other implementation details as `ppo_atari.py` (see [related docs](/rl-algorithms/ppo/#implementation-details_1)), with two differences
+
+1. [ppo_atari_envpool_xla_jax.py](https://github.com/vwxyzjn/cleanrl/blob/master/cleanrl/ppo_atari_envpool_xla_jax.py) does not use the value function clipping by default, because there is no sufficient evidence that value function clipping actually improves performance.
+1. [ppo_atari_envpool_xla_jax.py](https://github.com/vwxyzjn/cleanrl/blob/master/cleanrl/ppo_atari_envpool_xla_jax.py) uses a customized `EpisodeStatistics` to record episode statistics instead of the `RecordEpisodeStatistics` used in other variants. `RecordEpisodeStatistics` is a *stateful* python wrapper which is incompatible with EnvPool's *stateless* XLA interface. To address this issue, we used a `EpisodeStatistics` dataclass and simply implement the logic of `RecordEpisodeStatistics`. However, `EpisodeStatistics` comes with a major limitation: its storage has a fixed shape and can only record the *latest* episodic return of the sub-environments. Furthermore, the default episodic return values in `EpisodeStatistics` are set to zeros, which does not necessarily correspond to the episodic return obtained by a random policy. For example, we would report `charts/avg_episodic_return=0` for `Pong-v5`, even if they should have been `charts/avg_episodic_return=-21`. That said, this issue goes away as soon as the sub-environments finished their first episodes, therefore not impacting the reported results.
 
 
 ???+ info
@@ -493,96 +643,25 @@ Additionally, we record the following metric:
 
 To run benchmark experiments, see :material-github: [benchmark/ppo.sh](https://github.com/vwxyzjn/cleanrl/blob/master/benchmark/ppo.sh). Specifically, execute the following command:
 
-<script src="https://emgithub.com/embed.js?target=https%3A%2F%2Fgithub.com%2Fvwxyzjn%2Fcleanrl%2Fblob%2Fmaster%2Fbenchmark%2Fppo.sh%23L76-L91&style=github&type=code&showBorder=on&showLineNumbers=on&showFileMeta=on&showFullPath=on&showCopy=on"></script>
+
+``` title="benchmark/ppo.sh" linenums="1"
+--8<-- "benchmark/ppo.sh:69:74"
+```
 
 
-Below are the average episodic returns for `ppo_atari_envpool_xla_jax.py`. Notice it has the same sample efficiency as `ppo_atari.py`, but runs about 3x faster.
-
-???+ info
-
-    The following table and charts are generated by [atari_hns_new.py](https://github.com/openrlbenchmark/openrlbenchmark/blob/0c16fda7d7873143a632865010c74263ea487339/atari_hns_new.py),  [ours_vs_baselines_hns.py](https://github.com/openrlbenchmark/openrlbenchmark/blob/0c16fda7d7873143a632865010c74263ea487339/ours_vs_baselines_hns.py), and [ours_vs_seedrl_hns.py](https://github.com/openrlbenchmark/openrlbenchmark/blob/0c16fda7d7873143a632865010c74263ea487339/ours_vs_seedrl_hns.py).
+{!benchmark/ppo_atari_envpool_xla_jax.md!}
 
 
-<!-- | Environment      | `ppo_atari_envpool_xla_jax.py` (~80 mins) | `ppo_atari.py` (~220 mins)
-| ----------- | ----------- | ----------- |
-| BreakoutNoFrameskip-v4 |   389.57 ± 29.62    | 416.31 ± 43.92 
-| PongNoFrameskip-v4 | 20.55 ± 0.37   | 20.59 ± 0.35   
-| BeamRiderNoFrameskip-v4 |   2039.83 ± 1146.62 | 2445.38 ± 528.91  
- -->
-| Environment         |   CleanRL ppo_atari_envpool_xla_jax.py |   openai/baselines' PPO |
-|:--------------------|---------------------------------------:|------------------------:|
-| Alien-v5            |                         1744.76        |          1549.42        |
-| Amidar-v5           |                          617.137       |           546.406       |
-| Assault-v5          |                         5734.04        |          4050.78        |
-| Asterix-v5          |                         3341.9         |          3459.9         |
-| Asteroids-v5        |                         1669.3         |          1467.19        |
-| Atlantis-v5         |                            3.92929e+06 |             3.09748e+06 |
-| BankHeist-v5        |                         1192.68        |          1195.34        |
-| BattleZone-v5       |                        24937.9         |         20314.3         |
-| BeamRider-v5        |                         2447.84        |          2740.02        |
-| Berzerk-v5          |                         1082.72        |           887.019       |
-| Bowling-v5          |                           44.0681      |            62.2634      |
-| Boxing-v5           |                           92.0554      |            93.3596      |
-| Breakout-v5         |                          431.795       |           388.891       |
-| Centipede-v5        |                         2910.69        |          3688.16        |
-| ChopperCommand-v5   |                         5555.84        |           933.333       |
-| CrazyClimber-v5     |                       116114           |        111675           |
-| Defender-v5         |                        51439.2         |         50045.1         |
-| DemonAttack-v5      |                        22824.8         |         12173.9         |
-| DoubleDunk-v5       |                           -8.56781     |            -9           |
-| Enduro-v5           |                         1262.79        |          1061.12        |
-| FishingDerby-v5     |                           21.6222      |            23.8876      |
-| Freeway-v5          |                           33.1075      |            32.9167      |
-| Frostbite-v5        |                          904.346       |           924.5         |
-| Gopher-v5           |                        11369.6         |          2899.57        |
-| Gravitar-v5         |                         1141.95        |           870.755       |
-| Hero-v5             |                        24628.3         |         25984.5         |
-| IceHockey-v5        |                           -4.91917     |            -4.71505     |
-| Jamesbond-v5        |                          504.105       |           516.489       |
-| Kangaroo-v5         |                         7281.59        |          3791.5         |
-| Krull-v5            |                         9384.7         |          8672.95        |
-| KungFuMaster-v5     |                        26594.5         |         29116.1         |
-| MontezumaRevenge-v5 |                            0.240385    |             0           |
-| MsPacman-v5         |                         2461.62        |          2113.44        |
-| NameThisGame-v5     |                         5442.67        |          5713.89        |
-| Phoenix-v5          |                        14008.5         |          8693.21        |
-| Pitfall-v5          |                           -0.0801282   |            -1.47059     |
-| Pong-v5             |                           20.309       |            20.4043      |
-| PrivateEye-v5       |                           99.5283      |            21.2121      |
-| Qbert-v5            |                        16430.7         |         14283.4         |
-| Riverraid-v5        |                         8297.21        |          9267.48        |
-| RoadRunner-v5       |                        19342.2         |         40325           |
-| Robotank-v5         |                           15.45        |            16           |
-| Seaquest-v5         |                         1230.02        |          1754.44        |
-| Skiing-v5           |                       -14684.3         |        -13901.7         |
-| Solaris-v5          |                         2353.62        |          2088.12        |
-| SpaceInvaders-v5    |                         1162.16        |          1017.65        |
-| StarGunner-v5       |                        53535.9         |         40906           |
-| Surround-v5         |                           -2.94558     |            -6.08095     |
-| Tennis-v5           |                          -15.0446      |            -9.71429     |
-| TimePilot-v5        |                         6224.87        |          5775.53        |
-| Tutankham-v5        |                          238.419       |           197.929       |
-| UpNDown-v5          |                       430177           |        129459           |
-| Venture-v5          |                            0           |           115.278       |
-| VideoPinball-v5     |                        42975.3         |         32777.4         |
-| WizardOfWor-v5      |                         6247.83        |          5024.03        |
-| YarsRevenge-v5      |                        56696.7         |          8238.44        |
-| Zaxxon-v5           |                         6015.8         |          6379.79        |
+Learning curves:
 
+``` title="benchmark/ppo_plot.sh" linenums="1"
+--8<-- "benchmark/ppo_plot.sh:64:85"
+```
 
+<img loading="lazy" src="https://huggingface.co/datasets/cleanrl/benchmark/resolve/main/benchmark/pr-424/ppo_atari_envpool_xla_jax_sample_walltime_efficiency.png">
+<img loading="lazy" src="https://huggingface.co/datasets/cleanrl/benchmark/resolve/main/benchmark/pr-424/ppo_atari_envpool_xla_jax.png">
+<img loading="lazy" src="https://huggingface.co/datasets/cleanrl/benchmark/resolve/main/benchmark/pr-424/ppo_atari_envpool_xla_jax-time.png">
 
-Median Human Normalized Score (HNS) compared to openai/baselines.
-
-![](../ppo/ppo_atari_envpool_xla_jax/hns_ppo_vs_baselines.svg)
-
-
-Learning curves (left y-axis is the return and right y-axis is the human normalized score):
-
-![](../ppo/ppo_atari_envpool_xla_jax/hms_each_game.svg)
-
-
-Percentage of human normalized score (HMS) for each game.
-![](../ppo/ppo_atari_envpool_xla_jax/runset_0_hms_bar.svg)
 
 
 ???+ info
@@ -608,6 +687,78 @@ Tracked experiments and game play videos:
 
 
 
+## `ppo_atari_envpool_xla_jax_scan.py`
+
+The [ppo_atari_envpool_xla_jax_scan.py](https://github.com/vwxyzjn/cleanrl/blob/master/cleanrl/ppo_atari_envpool_xla_jax_scan.py) has the following features:
+
+* Replaces python loops in `compute_gae`, `update_ppo`, and `rollout` functions of [ppo_atari_envpool_xla_jax.py](/rl-algorithms/ppo/#ppo_atari_envpool_xla_jaxpy) with native `jax.scan`
+* Warnings and caveats from [ppo_atari_envpool_xla_jax.py](/rl-algorithms/ppo/#ppo_atari_envpool_xla_jaxpy) also apply here
+
+### Usage
+
+=== "poetry"
+
+    ```bash
+    poetry install -E "envpool jax"
+    poetry run pip install --upgrade "jax[cuda11_cudnn82]==0.4.8" -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
+    poetry run python cleanrl/ppo_atari_envpool_xla_jax_scan.py --help
+    poetry run python cleanrl/ppo_atari_envpool_xla_jax_scan.py --env-id Breakout-v5
+    ```
+
+=== "pip"
+
+    ```bash
+    pip install -r requirements/requirements-envpool.txt
+    pip install -r requirements/requirements-jax.txt
+    pip install --upgrade "jax[cuda]==0.3.17" -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
+    python cleanrl/ppo_atari_envpool_xla_jax_scan.py --help
+    python cleanrl/ppo_atari_envpool_xla_jax_scan.py --env-id Breakout-v5
+    ```
+
+### Explanation of the logged metrics
+
+See [related docs](/rl-algorithms/ppo/#explanation-of-the-logged-metrics) for `ppo.py`. The metrics are the same as those in [ppo_atari_envpool_xla_jax.py](https://github.com/vwxyzjn/cleanrl/blob/master/cleanrl/ppo_atari_envpool_xla_jax.py).
+
+### Implementation details
+
+[ppo_atari_envpool_xla_jax_scan.py](https://github.com/vwxyzjn/cleanrl/blob/master/cleanrl/ppo_atari_envpool_xla_jax_scan.py) is a clone of [ppo_atari_envpool_xla_jax.py](https://github.com/vwxyzjn/cleanrl/blob/master/cleanrl/ppo_atari_envpool_xla_jax.py) that replaces the python loops with native `jax.scan`.
+
+### Experiment results
+
+To run benchmark experiments, see :material-github: [benchmark/ppo.sh](https://github.com/vwxyzjn/cleanrl/blob/master/benchmark/ppo.sh). Specifically, execute the following command:
+
+
+``` title="benchmark/ppo.sh" linenums="1"
+--8<-- "benchmark/ppo.sh:80:85"
+```
+
+
+{!benchmark/ppo_atari_envpool_xla_jax_scan.md!}
+
+
+Learning curves:
+
+``` title="benchmark/ppo_plot.sh" linenums="1"
+--8<-- "benchmark/ppo_plot.sh:87:96"
+```
+
+<img loading="lazy" src="https://huggingface.co/datasets/cleanrl/benchmark/resolve/main/benchmark/pr-424/ppo_atari_envpool_xla_jax_scan.png">
+<img loading="lazy" src="https://huggingface.co/datasets/cleanrl/benchmark/resolve/main/benchmark/pr-424/ppo_atari_envpool_xla_jax_scan-time.png">
+
+Learning curves:
+
+???+ info
+
+    The trainig time of this variant and that of [ppo_atari_envpool_xla_jax.py](https://github.com/vwxyzjn/cleanrl/blob/master/cleanrl/ppo_atari_envpool_xla_jax.py) are very similar but the compilation time is reduced significantly (see [vwxyzjn/cleanrl#328](https://github.com/vwxyzjn/cleanrl/pull/328#issuecomment-1340474894)). Note that the hardware also affects the speed in the learning curve below. Runs from [`costa-huang`](https://github.com/vwxyzjn/) (red) are slower from those of [`51616`](https://github.com/51616/) (blue and orange) because of hardware differences.
+
+    ![](../ppo/ppo_atari_envpool_xla_jax_scan/compare.png)
+    ![](../ppo/ppo_atari_envpool_xla_jax_scan/compare-time.png)
+
+
+Tracked experiments:
+
+<iframe src="https://wandb.ai/openrlbenchmark/openrlbenchmark/reports/Regression-Report-ppo_atari_envpool_xla_jax_scan--VmlldzozMTk2MzM2" style="width:100%; height:500px" title="Atari-CleanRL-s-PPO-Envpool-Jax-scan"></iframe>
+
 
 ## `ppo_procgen.py`
 
@@ -620,11 +771,21 @@ The [ppo_procgen.py](https://github.com/vwxyzjn/cleanrl/blob/master/cleanrl/ppo_
 
 ### Usage
 
-```bash
-poetry install --with procgen
-python cleanrl/ppo_procgen.py --help
-python cleanrl/ppo_procgen.py --env-id starpilot
-```
+=== "poetry"
+
+    ```bash
+    poetry install -E procgen
+    poetry run python cleanrl/ppo_procgen.py --help
+    poetry run python cleanrl/ppo_procgen.py --env-id starpilot
+    ```
+
+=== "pip"
+
+    ```bash
+    pip install -r requirements/requirements-procgen.txt
+    python cleanrl/ppo_procgen.py --help
+    python cleanrl/ppo_procgen.py --env-id starpilot
+    ```
 
 ### Explanation of the logged metrics
 
@@ -643,8 +804,10 @@ See [related docs](/rl-algorithms/ppo/#explanation-of-the-logged-metrics) for `p
 
 To run benchmark experiments, see :material-github: [benchmark/ppo.sh](https://github.com/vwxyzjn/cleanrl/blob/master/benchmark/ppo.sh). Specifically, execute the following command:
 
-<script src="https://emgithub.com/embed.js?target=https%3A%2F%2Fgithub.com%2Fvwxyzjn%2Fcleanrl%2Fblob%2Fmaster%2Fbenchmark%2Fppo.sh%23L39-L45&style=github&showBorder=on&showLineNumbers=on&showFileMeta=on&showCopy=on"></script>
 
+``` title="benchmark/ppo.sh" linenums="1"
+--8<-- "benchmark/ppo.sh:91:100"
+```
 
 We try to match the default setting in [openai/train-procgen](https://github.com/openai/train-procgen) except that we use the `easy` distribution mode and `total_timesteps=25e6` to save compute. Notice [openai/train-procgen](https://github.com/openai/train-procgen) has the following settings:
 
@@ -656,29 +819,30 @@ Below are the average episodic returns for `ppo_procgen.py`. To ensure the quali
 
 | Environment      | `ppo_procgen.py` | `openai/baselies`' PPO (Huang et al., 2022)[^1]
 | ----------- | ----------- | ----------- |
-| StarPilot (easy)      | 32.47 ± 11.21      | 33.97 ± 7.86  |
-| BossFight (easy)   | 9.63 ± 2.35    |  9.35 ± 2.04 |
-| BigFish  (easy)  | 16.80 ± 9.49         | 20.06 ± 5.34 |
+| StarPilot (easy)      | 30.99 ± 1.96      | 33.97 ± 7.86  |
+| BossFight (easy)   | 8.85 ± 0.33    |  9.35 ± 2.04 |
+| BigFish  (easy)  | 16.46 ± 2.71         | 20.06 ± 5.34 |
+
+
+
+Learning curves:
+
+``` title="benchmark/ppo_plot.sh" linenums="1"
+--8<-- "benchmark/ppo_plot.sh:98:106"
+```
+
+<img loading="lazy" src="https://huggingface.co/datasets/cleanrl/benchmark/resolve/main/benchmark/pr-424/ppo_procgen.png">
+<img loading="lazy" src="https://huggingface.co/datasets/cleanrl/benchmark/resolve/main/benchmark/pr-424/ppo_procgen-time.png">
 
 
 ???+ info
 
     Note that we have run the procgen experiments using the `easy` distribution for reducing the computational cost.
 
-Learning curves:
-
-<div class="grid-container">
-<img src="../ppo/StarPilot.png">
-
-<img src="../ppo/BossFight.png">
-
-<img src="../ppo/BigFish.png">
-</div>
-
 
 Tracked experiments and game play videos:
 
-<iframe src="https://wandb.ai/openrlbenchmark/openrlbenchmark/reports/Procgen-CleanRL-s-PPO--VmlldzoxODcxMzUy" style="width:100%; height:500px" title="Procgen-CleanRL-s-PPO"></iframe>
+<iframe loading="lazy" src="https://wandb.ai/openrlbenchmark/openrlbenchmark/reports/Procgen-CleanRL-s-PPO--VmlldzoxODcxMzUy" style="width:100%; height:500px" title="Procgen-CleanRL-s-PPO"></iframe>
 
 
 
@@ -699,21 +863,43 @@ The [ppo_atari_multigpu.py](https://github.com/vwxyzjn/cleanrl/blob/master/clean
 
 ### Usage
 
-```bash
-poetry install --with atari
-python cleanrl/ppo_atari_multigpu.py --help
 
-# `--nproc_per_node=2` specifies how many subprocesses we spawn for training with data parallelism
-# note it is possible to run this with a *single GPU*: each process will simply share the same GPU
-torchrun --standalone --nnodes=1 --nproc_per_node=2 cleanrl/ppo_atari_multigpu.py --env-id BreakoutNoFrameskip-v4
+=== "poetry"
 
-# by default we use the `gloo` backend, but you can use the `nccl` backend for better multi-GPU performance
-torchrun --standalone --nnodes=1 --nproc_per_node=2 cleanrl/ppo_atari_multigpu.py --env-id BreakoutNoFrameskip-v4 --backend nccl
+    ```bash
+    poetry install -E atari
+    poetry run python cleanrl/ppo_atari_multigpu.py --help
 
-# it is possible to spawn more processes than the amount of GPUs you have via `--device-ids`
-# e.g., the command below spawns two processes using GPU 0 and two processes using GPU 1
-torchrun --standalone --nnodes=1 --nproc_per_node=2 cleanrl/ppo_atari_multigpu.py --env-id BreakoutNoFrameskip-v4 --device-ids 0 0 1 1
-```
+    # `--nproc_per_node=2` specifies how many subprocesses we spawn for training with data parallelism
+    # note it is possible to run this with a *single GPU*: each process will simply share the same GPU
+    poetry run torchrun --standalone --nnodes=1 --nproc_per_node=2 cleanrl/ppo_atari_multigpu.py --env-id BreakoutNoFrameskip-v4
+
+    # by default we use the `gloo` backend, but you can use the `nccl` backend for better multi-GPU performance
+    poetry run torchrun --standalone --nnodes=1 --nproc_per_node=2 cleanrl/ppo_atari_multigpu.py --env-id BreakoutNoFrameskip-v4 --backend nccl
+
+    # it is possible to spawn more processes than the amount of GPUs you have via `--device-ids`
+    # e.g., the command below spawns two processes using GPU 0 and two processes using GPU 1
+    poetry run torchrun --standalone --nnodes=1 --nproc_per_node=2 cleanrl/ppo_atari_multigpu.py --env-id BreakoutNoFrameskip-v4 --device-ids 0 0 1 1
+    ```
+
+=== "pip"
+
+    ```bash
+    pip install -r requirements/requirements-atari.txt
+    python cleanrl/ppo_atari_multigpu.py --help
+
+    # `--nproc_per_node=2` specifies how many subprocesses we spawn for training with data parallelism
+    # note it is possible to run this with a *single GPU*: each process will simply share the same GPU
+    torchrun --standalone --nnodes=1 --nproc_per_node=2 cleanrl/ppo_atari_multigpu.py --env-id BreakoutNoFrameskip-v4
+
+    # by default we use the `gloo` backend, but you can use the `nccl` backend for better multi-GPU performance
+    torchrun --standalone --nnodes=1 --nproc_per_node=2 cleanrl/ppo_atari_multigpu.py --env-id BreakoutNoFrameskip-v4 --backend nccl
+
+    # it is possible to spawn more processes than the amount of GPUs you have via `--device-ids`
+    # e.g., the command below spawns two processes using GPU 0 and two processes using GPU 1
+    torchrun --standalone --nnodes=1 --nproc_per_node=2 cleanrl/ppo_atari_multigpu.py --env-id BreakoutNoFrameskip-v4 --device-ids 0 0 1 1
+    ```
+
 
 ### Explanation of the logged metrics
 
@@ -723,13 +909,13 @@ See [related docs](/rl-algorithms/ppo/#explanation-of-the-logged-metrics) for `p
 
 [ppo_atari_multigpu.py](https://github.com/vwxyzjn/cleanrl/blob/master/cleanrl/ppo_atari_multigpu.py) is based on `ppo_atari.py` (see its [related docs](/rl-algorithms/ppo/#implementation-details_1)).
 
-We use [Pytorch's distributed API](https://pytorch.org/tutorials/intermediate/dist_tuto.html) to implement the data parallelism paradigm. The basic idea is that the user can spawn $N$ processes each holding a copy of the model, step the environments, and averages their gradients together for the backward pass. Here are a few note-worthy implementation details.
+We use [Pytorch's distributed API](https://pytorch.org/tutorials/intermediate/dist_tuto.html) to implement the data parallelism paradigm. The basic idea is that the user can spawn $N$ processes each running a copy of `ppo_atari.py`,  holding a copy of the model, stepping the environments, and averaging their gradients together for the backward pass. Here are a few note-worthy implementation details.
 
-1. **Shard the environments**: by default, `ppo_atari_multigpu.py` uses `--num-envs=8`. When calling `torchrun --standalone --nnodes=1 --nproc_per_node=2 cleanrl/ppo_atari_multigpu.py --env-id BreakoutNoFrameskip-v4`, it spawns $N=2$ (by `--nproc_per_node=2`) subprocesses and shard the environments across these 2 subprocesses. In particular, each subprocess will have `8/2=4` environments. Implementation wise, we do `args.num_envs = int(args.num_envs / world_size)`. Here `world_size=2` refers to the size of the **world**, which means the group of subprocesses. We also need to adjust various variables as follows:
-    * **batch size**: by default it is `(num_envs * num_steps) = 8 * 128 = 1024` and we adjust it to `(num_envs / world_size * num_steps) = (4 * 128) = 512`. 
-    * **minibatch size**: by default it is `(num_envs * num_steps) / num_minibatches = (8 * 128) / 4 = 256` and we adjust it to `(num_envs / world_size * num_steps) / num_minibatches = (4 * 128) / 4 = 128`. 
-    * **number of updates**: by default it is `total_timesteps // batch_size = 10000000 // (8 * 128) = 9765` and we adjust it to   `total_timesteps // (batch_size * world_size) = 10000000 // (8 * 128 * 2) = 4882`.
-    * **global step increment**: by default it is `num_envs`  and we adjust it to `num_envs * world_size`.
+1. **Local versus global parameters**: All of the parameters in `ppo_atari.py` are global (such as batch size), but in `ppo_atari_multigpu.py` we have local parameters as well. Say we run `torchrun --standalone --nnodes=1 --nproc_per_node=2 cleanrl/ppo_atari_multigpu.py --env-id BreakoutNoFrameskip-v4 --local-num-envs=4`; here are how all multi-gpu related parameters are adjusted:
+    * **number of environments**: `num_envs = local_num_envs * world_size = 4 * 2 = 8`
+    * **batch size**: `local_batch_size = local_num_envs * num_steps = 4 * 128 = 512`, `batch_size = num_envs * num_steps) = 8 * 128 = 1024`
+    * **minibatch size**:  `local_minibatch_size = int(args.local_batch_size // args.num_minibatches) = 512 // 4 = 128`, `minibatch_size = int(args.batch_size // args.num_minibatches) = 1024 // 4 = 256`
+    * **number of updates**: `num_iterations = args.total_timesteps // args.batch_size = 10000000 // 1024 = 9765`
 1. **Adjust seed per process**: we need be very careful with seeding: we could have used the exact same seed for each subprocess. To ensure this does not happen, we do the following
 
     ```python hl_lines="2 5 16"
@@ -783,100 +969,6 @@ We use [Pytorch's distributed API](https://pytorch.org/tutorials/intermediate/di
 
 
 
-We can see how `ppo_atari_multigpu.py` can result in no loss of sample efficiency. In this example, the `ppo_atari.py`'s minibatch size is `256` and the `ppo_atari_multigpu.py`'s minibatch size is `128` with world size 2. Because we average gradient across the world, the gradient under  `ppo_atari_multigpu.py` should be virtually the same as the gradient under `ppo_atari.py`.
-
-<!-- 
-
-<script src="https://unpkg.com/monaco-editor@latest/min/vs/loader.js"></script>
-
-
-<div style="padding-bottom: 20px;">
-	<div
-	id="ppo_shared"
-	style="width: 100%; height: 600px; border: 1px solid grey"
-	></div>
-</div>
-
-<script>
-  require.config({
-    paths: { vs: "https://unpkg.com/monaco-editor@latest/min/vs" },
-  });
-  window.MonacoEnvironment = { getWorkerUrl: () => proxy };
-
-  let proxy = URL.createObjectURL(
-    new Blob(
-      [
-        `
-	self.MonacoEnvironment = {
-		baseUrl: 'https://unpkg.com/monaco-editor@latest/min/'
-	};
-	importScripts('https://unpkg.com/monaco-editor@latest/min/vs/base/worker/workerMain.js');
-`,
-      ],
-      { type: "text/javascript" }
-    )
-  );
-
-  require(["vs/editor/editor.main"], function () {
-    var diffEditor = monaco.editor.createDiffEditor(
-      document.getElementById("ppo_shared")
-    );
-
-	
-    Promise.all([
-		xhr("https://raw.githubusercontent.com/vwxyzjn/cleanrl/master/cleanrl/ppo_atari.py"),
-		xhr("https://raw.githubusercontent.com/vwxyzjn/cleanrl/master/cleanrl/ppo_atari.py")
-	]).then(function (r) {
-      var originalTxt = r[0].responseText;
-      var modifiedTxt = r[1].responseText;
-
-      diffEditor.setModel({
-        original: monaco.editor.createModel(originalTxt, "python"),
-        modified: monaco.editor.createModel(modifiedTxt, "python"),
-        startLineNumber: 104,
-      });
-      diffEditor.revealPositionInCenter({ lineNumber: 115, column: 0 });
-    });
-  });
-</script>
-<script>
-  function xhr(url) {
-    var req = null;
-    return new Promise(
-      function (c, e) {
-        req = new XMLHttpRequest();
-        req.onreadystatechange = function () {
-          if (req._canceled) {
-            return;
-          }
-
-          if (req.readyState === 4) {
-            if (
-              (req.status >= 200 && req.status < 300) ||
-              req.status === 1223
-            ) {
-              c(req);
-            } else {
-              e(req);
-            }
-            req.onreadystatechange = function () {};
-          }
-        };
-
-        req.open("GET", url, true);
-        req.responseType = "";
-
-        req.send(null);
-      },
-      function () {
-        req._canceled = true;
-        req.abort();
-      }
-    );
-  }
-</script> -->
-
-
 
 ### Experiment results
 
@@ -884,33 +976,35 @@ We can see how `ppo_atari_multigpu.py` can result in no loss of sample efficienc
 
 To run benchmark experiments, see :material-github: [benchmark/ppo.sh](https://github.com/vwxyzjn/cleanrl/blob/master/benchmark/ppo.sh). Specifically, execute the following command:
 
-<script src="https://emgithub.com/embed.js?target=https%3A%2F%2Fgithub.com%2Fvwxyzjn%2Fcleanrl%2Fblob%2Fmaster%2Fbenchmark%2Fppo.sh%23L46-L52&style=github&showBorder=on&showLineNumbers=on&showFileMeta=on&showCopy=on"></script>
 
+``` title="benchmark/ppo.sh" linenums="1"
+--8<-- "benchmark/ppo.sh:102:107"
+```
 
 Below are the average episodic returns for `ppo_atari_multigpu.py`. To ensure no loss of sample efficiency, we compared the results against `ppo_atari.py`.
 
-| Environment      | `ppo_atari_multigpu.py` (in ~160 mins) | `ppo_atari.py` (in ~215 mins)
-| ----------- | ----------- | ----------- |
-| BreakoutNoFrameskip-v4 | 429.06 ± 52.09      | 416.31 ± 43.92     | 
-| PongNoFrameskip-v4 | 20.40 ± 0.46  | 20.59 ± 0.35    |  
-| BeamRiderNoFrameskip-v4 | 2454.54 ± 740.49   | 2445.38 ± 528.91         | 
+
+{!benchmark/ppo_atari_multigpu.md!}
 
 
 Learning curves:
 
-<div class="grid-container">
-<img src="../ppo/BreakoutNoFrameskip-v4multigpu.png">
-<img src="../ppo/BreakoutNoFrameskip-v4multigpu-time.png">
+``` title="benchmark/ppo_plot.sh" linenums="1"
+--8<-- "benchmark/ppo_plot.sh:108:117"
+```
 
-<img src="../ppo/PongNoFrameskip-v4multigpu.png">
-<img src="../ppo/PongNoFrameskip-v4multigpu-time.png">
+<img loading="lazy" src="https://huggingface.co/datasets/cleanrl/benchmark/resolve/main/benchmark/pr-424/ppo_atari_multigpu.png">
+<img loading="lazy" src="https://huggingface.co/datasets/cleanrl/benchmark/resolve/main/benchmark/pr-424/ppo_atari_multigpu-time.png">
 
-<img src="../ppo/BeamRiderNoFrameskip-v4multigpu.png">
-<img src="../ppo/BeamRiderNoFrameskip-v4multigpu-time.png">
-</div>
+
 
 
 Under the same hardware, we see that `ppo_atari_multigpu.py` is about **30% faster** than `ppo_atari.py` with no loss of sample efficiency. 
+
+
+???+ info
+
+    The experiments above is to show correctness -- we show that by aligning the same hyperparameters of `ppo_atari.py` and `ppo_atari_multigpu.py`, we can achieve the same sample efficiency. However, we can train even faster by simply running a much larger batch size. For example, we can run `torchrun --standalone --nnodes=1 --nproc_per_node=8 cleanrl/ppo_atari_multigpu.py --env-id BreakoutNoFrameskip-v4 --local-num-envs=8`, which will run 8 x 8 = 64 environments in parallel and achieve a batch size of 64 x 128 = 8192. This will likely result in a sample efficiency but should increase the wall time efficiency.
 
 
 ???+ info
@@ -928,7 +1022,7 @@ Under the same hardware, we see that `ppo_atari_multigpu.py` is about **30% fast
 
 Tracked experiments and game play videos:
 
-<iframe src="https://wandb.ai/openrlbenchmark/openrlbenchmark/reports/Atari-CleanRL-s-PPO-MultiGPU--VmlldzoxOTM2NDUx" style="width:100%; height:500px" title="Atari-CleanRL-s-PPO"></iframe>
+<iframe loading="lazy" src="https://wandb.ai/openrlbenchmark/openrlbenchmark/reports/Atari-CleanRL-s-PPO-MultiGPU--VmlldzoxOTM2NDUx" style="width:100%; height:500px" title="Atari-CleanRL-s-PPO"></iframe>
 
 
 
@@ -949,13 +1043,26 @@ Tracked experiments and game play videos:
 
 ### Usage
 
-```bash
-poetry install --with pettingzoo,atari
-poetry run AutoROM --accept-license
-python cleanrl/ppo_pettingzoo_ma_atari.py --help
-python cleanrl/ppo_pettingzoo_ma_atari.py --env-id pong_v3
-python cleanrl/ppo_pettingzoo_ma_atari.py --env-id surround_v2
-```
+=== "poetry"
+
+    ```bash
+    poetry install -E "pettingzoo atari"
+    poetry run AutoROM --accept-license
+    poetry run  cleanrl/ppo_pettingzoo_ma_atari.py --help
+    poetry run  cleanrl/ppo_pettingzoo_ma_atari.py --env-id pong_v3
+    poetry run  cleanrl/ppo_pettingzoo_ma_atari.py --env-id surround_v2
+    ```
+
+=== "pip"
+
+    ```bash
+    pip install -r requirements/requirements-pettingzoo.txt
+    pip install -r requirements/requirements-atari.txt
+    AutoROM --accept-license
+    python cleanrl/ppo_pettingzoo_ma_atari.py --help
+    python cleanrl/ppo_pettingzoo_ma_atari.py --env-id pong_v3
+    python cleanrl/ppo_pettingzoo_ma_atari.py --env-id surround_v2
+    ```
 
 See [https://www.pettingzoo.ml/atari](https://www.pettingzoo.ml/atari) for a full-list of supported environments such as `basketball_pong_v3`. Notice pettingzoo sometimes introduces breaking changes, so make sure to install the pinned dependencies via `poetry`.
 
@@ -1062,7 +1169,7 @@ Learning curves:
 
 Tracked experiments and game play videos:
 
-<iframe src="https://wandb.ai/openrlbenchmark/openrlbenchmark/reports/Pettingzoo-s-Multi-agent-Atari-CleanRL-s-PPO--VmlldzoyMDkxNTE5" style="width:100%; height:500px" title="Atari-CleanRL-s-PPO"></iframe>
+<iframe loading="lazy" src="https://wandb.ai/openrlbenchmark/openrlbenchmark/reports/Pettingzoo-s-Multi-agent-Atari-CleanRL-s-PPO--VmlldzoyMDkxNTE5" style="width:100%; height:500px" title="Atari-CleanRL-s-PPO"></iframe>
 
 
 
