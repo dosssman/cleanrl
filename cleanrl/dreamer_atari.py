@@ -279,11 +279,12 @@ def make_env(env_id, seed, idx, capture_video, run_name, buffer, args):
             return filename
 
     def thunk():
-        env = gym.make(env_id)
+        if capture_video and idx == 0:
+            env = gym.make(env_id, render_mode="rgb_array")
+            env = gym.wrappers.RecordVideo(env, f"videos/{run_name}")
+        else:
+            env = gym.make(env_id)
         env = gym.wrappers.RecordEpisodeStatistics(env)
-        if capture_video:
-            if idx == 0:
-                env = gym.wrappers.RecordVideo(env, f"videos/{run_name}")
         env = NoopResetEnv(env, noop_max=30)
         env = MaxAndSkipEnv(env, skip=args.env_action_repeats)
         env = EpisodicLifeEnv(env)
@@ -1182,7 +1183,7 @@ class Dreamer(nn.Module):
 
         obs_feat = wm.encoder(obs).view(B, -1) # [B, 1024]
 
-        if prev_data == None: # Dummy previous internal state for the first step
+        if prev_data is None: # Dummy previous internal state for the first step
             prev_data = {
                 "s_deter": obs.new_zeros([B, config.rssm_deter_size]),
                 "s_stoch": obs.new_zeros([B, wm.state_stoch_feat_size]),
@@ -1289,7 +1290,7 @@ class Dreamer(nn.Module):
         imag_traj_video_processed = torch.cat([torch.cat([tnsr, black_strip], 3) for tnsr in imag_traj_video], dim=3)[None] # [1, N, Hor, C, H, (W + 3)* N]
         imag_traj_video_processed = imag_traj_video_processed[:, :, :, :, :-3] # [1, Hor, C, H, (W + 3)* N - 3]
         return imag_traj_video_processed.cpu().numpy()
-    
+
 if __name__ == "__main__":
     args = parse_args()
     run_name = f"{args.env_id}__{args.exp_name}__{args.seed}__{int(time.time())}"
