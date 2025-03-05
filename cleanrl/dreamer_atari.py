@@ -9,7 +9,7 @@ import argparse
 import datetime
 from distutils.util import strtobool
 
-import gym
+import gymnasium as gym
 import numpy as np
 import torch
 import torch.nn as nn
@@ -218,7 +218,8 @@ def make_env(env_id, seed, idx, capture_video, run_name, buffer, args):
             buffer.action_space = env.action_space
 
         def step(self, action):
-            observation, reward, done, info = super().step(action)
+            # NOTE: done has been replaced to terminated
+            observation, reward, done, truncated, info = super().step(action)
             # Cache the trajectory data
             self._episode_data["observations"].append(observation)
             # NOTE: For Atari, store the action as one hot vector
@@ -232,17 +233,17 @@ def make_env(env_id, seed, idx, capture_video, run_name, buffer, args):
             if done:
                 self.save_episode() # Reset takes care of cleanup
 
-            return observation, reward, done, info
+            return observation, reward, done, truncated, info
         
         def reset(self):
-            first_obs = super().reset()
+            first_obs, first_info = super().reset()
             self._episode_data = {
                 "observations": [first_obs],
                 "actions": [np.zeros(self.action_space.n)],
                 "rewards": [0.0],
                 "terminals": [False], # done
             }
-            return first_obs
+            return first_obs, first_info
         
         def save_episode(self):
             # Prerpocess the episode data into np arrays
@@ -253,7 +254,7 @@ def make_env(env_id, seed, idx, capture_video, run_name, buffer, args):
             self._episode_data["rewards"] = \
                 np.array(self._episode_data["rewards"], dtype=np.float32).reshape(-1, 1)
             self._episode_data["terminals"] = \
-                np.array(self._episode_data["terminals"], dtype=np.bool8).reshape(-1, 1)
+                np.array(self._episode_data["terminals"], dtype=bool).reshape(-1, 1)
             # TODO: add proper credit for inspiration of this code
             timestamp = datetime.datetime.now().strftime('%Y%m%dT%H%M%S')
             identifier = str(uuid.uuid4().hex)
@@ -330,7 +331,7 @@ class DreamerTBPTTBuffer():
         obs_list = np.zeros([B, T, C, 64, 64]) # TODO: recover obs shape, make this env agnostic ?
         act_list = np.zeros([B, T, self.action_space.n], dtype=np.float32)
         rew_list = np.zeros([B, T, 1], dtype=np.float32)
-        ter_list = np.zeros([B, T, 1], dtype=np.bool8)
+        ter_list = np.zeros([B, T, 1], dtype=bool)
 
         for b in range(B):
             ssf = 0 # Steps collected so far current batch trajectory
@@ -1333,7 +1334,8 @@ if __name__ == "__main__":
 
     # TRY NOT TO MODIFY: start the game
     start_time = time.time()
-    obs = envs.reset()
+    reset_results = envs.reset()
+    obs, _ = envs.reset()
     prev_data, prev_batch_data = None, None
     n_episodes = 0
     total_updates = args.total_timesteps // args.train_every # Expected total number of updates
@@ -1348,11 +1350,11 @@ if __name__ == "__main__":
             action, prev_data = dreamer.sample_action(obs_th, prev_data, mode="train")
 
         # TRY NOT TO MODIFY: execute the game and log data.
-        next_obs, rewards, dones, infos = envs.step(action)
+        next_obs, rewards, dones, truncateds, infos = envs.step(action)
 
         # TRY NOT TO MODIFY: record rewards for plotting purposes
         if int(np.sum(dones)):
-            for info in infos:
+            for info in infos["final_info"]:
                 if "episode" in info.keys():
                     print(f"global_step={global_step}, episodic_return={info['episode']['r']}")
                     writer.add_scalar("charts/episodic_return", info["episode"]["r"], global_step)
