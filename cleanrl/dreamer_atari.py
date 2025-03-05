@@ -1,6 +1,5 @@
 # TODO docs and experiment results can be found at https://docs.cleanrl.dev/rl-algorithms/dreamer/#dreamer_ataripy
 import os
-import re
 import time
 import uuid
 import copy
@@ -362,7 +361,7 @@ class DreamerTBPTTBuffer():
         
         # Tensorize and copy to training batch to (GPU) device
         return {
-            "observations": torch.Tensor(obs_list).float().to(self.device),
+            "observations": torch.Tensor(obs_list).float().to(self.device, ),
             "actions": torch.Tensor(act_list).float().to(self.device),
             "rewards": torch.Tensor(rew_list).float().to(self.device),
             "terminals": torch.Tensor(ter_list).bool().to(self.device)
@@ -990,7 +989,7 @@ class ActorCritic(nn.Module):
         def lambda_return(reward, value, pcont, bootstrap, lambda_):
             # Setting lambda=1 gives a discounted Monte Carlo return.
             # Setting lambda=0 gives a fixed 1-step return.
-            next_values = torch.cat([value[1:], bootstrap[None]], 0) # [Hor, B * T, 1]
+            next_values = torch.cat([value[1:], bootstrap.unsqueeze(0)], 0) # [Hor, B * T, 1]
             inputs = reward + pcont * next_values * (1 - lambda_) # [Hor, B * T, 1]
             
             def static_scan(fn, inputs, start):
@@ -1163,9 +1162,9 @@ class Dreamer(nn.Module):
         super().__init__()
         self.config = config
         self.action_dim = action_dim # TODO: adopt a more general notation like "action_dim" ?
-        
-        self.wm = WorldModel(config=args, action_dim=action_dim)
-        self.ac = ActorCritic(config=args, action_dim=action_dim, wm_fn=lambda: self.wm)
+
+        self.wm = WorldModel(config=config, action_dim=action_dim)
+        self.ac = ActorCritic(config=config, action_dim=action_dim, wm_fn=lambda: self.wm)
 
         # Tracking training stats
         self.register_buffer("step", torch.LongTensor([0])) # How many env. steps so far, for schedulers
@@ -1181,7 +1180,7 @@ class Dreamer(nn.Module):
         actor = self.ac.actor # Actor shorthand
         B = obs.shape[0]
 
-        obs_feat = wm.encoder(obs).view(B, -1) # [B, 1024]
+        obs_feat = wm.encoder(obs).reshape(B, -1) # [B, 1024]
 
         if prev_data is None: # Dummy previous internal state for the first step
             prev_data = {
@@ -1244,6 +1243,8 @@ class Dreamer(nn.Module):
             # .detach() is used to block the gradient flow from AC to WM component
             ac_train_data = {k: wm_fwd_dict[k].detach() for k in ["s_deter_list", "s_stoch_list", "s_list"]}
             ac_train_data = {k: torch.masked_select(v, masks_list).view(B_T, -1) for k,v in ac_train_data.items()}
+            # Supposedly faster version
+            # ac_train_data = {k: v[masks_list.repeat(1, 1, v.shape[-1])].view(B_T, -1) for k,v in ac_train_data.items()}  # TODO: double check dimensions
         else:
             # .detach() is used to block the gradient flow from AC to WM component
             ac_train_data = {k: wm_fwd_dict[k].detach().view(B_T,-1) for k in ["s_deter_list", "s_stoch_list", "s_list"]}
@@ -1273,7 +1274,7 @@ class Dreamer(nn.Module):
         error = (rec_obs_list - orig_obs_list + 1) / 2.
         black_strip = orig_obs_list.new_zeros([N, *orig_obs_list.shape[1:-2], 3, orig_obs_list.shape[-1]]) # [N, T, C, 3, W]
         train_video = torch.cat([orig_obs_list, black_strip, rec_obs_list, black_strip, error], 3) # [N, T, C, H * 3 + 6, W]
-        train_video = torch.cat([tnsr for tnsr in train_video], dim=3)[None] # [1, T, C, H * 3 + 6, W * N] # Vertical stack
+        train_video = torch.cat([tnsr for tnsr in train_video], dim=3).unsqueeze(0) # [1, T, C, H * 3 + 6, W * N] # Vertical stack
         return train_video.cpu().numpy()
 
     @torch.no_grad()
@@ -1287,7 +1288,7 @@ class Dreamer(nn.Module):
         imag_s_list = imag_s_list.view(N * Hor, -1) # [N * Hor, |S|]
         imag_traj_video = (self.wm.decoder(imag_s_list).view(N, Hor, *C_H_W) + .5).clamp(0.0, 1.0) # [N, Hor, C, H, W]
         black_strip = imag_traj_video.new_zeros([*imag_traj_video.shape[1:-1], 3])
-        imag_traj_video_processed = torch.cat([torch.cat([tnsr, black_strip], 3) for tnsr in imag_traj_video], dim=3)[None] # [1, N, Hor, C, H, (W + 3)* N]
+        imag_traj_video_processed = torch.cat([torch.cat([tnsr, black_strip], 3) for tnsr in imag_traj_video], dim=3).unsqueeze(0) # [1, N, Hor, C, H, (W + 3)* N]
         imag_traj_video_processed = imag_traj_video_processed[:, :, :, :, :-3] # [1, Hor, C, H, (W + 3)* N - 3]
         return imag_traj_video_processed.cpu().numpy()
 
@@ -1328,14 +1329,13 @@ if __name__ == "__main__":
     assert isinstance(envs.single_action_space, gym.spaces.Discrete), "only discrete action space is supported"
     
     # Instantiate the Dreamer agent
-    dreamer = Dreamer(config=args, action_dim=envs.single_action_space.n).to(device)
+    dreamer = torch.compile(Dreamer(config=args, action_dim=envs.single_action_space.n).to(device))
     print(dreamer) # Checking the agent structure, and parameter count
     # from torchinfo import summary
     # summary(dreamer)
 
     # TRY NOT TO MODIFY: start the game
     start_time = time.time()
-    reset_results = envs.reset()
     obs, _ = envs.reset()
     prev_data, prev_batch_data = None, None
     n_episodes = 0
@@ -1347,7 +1347,7 @@ if __name__ == "__main__":
         else:
             # Tensorize observation, pre-process and put on training device
             # Pixel-based observations are pre-processed itno the [-0.5, 0.5] range
-            obs_th = torch.Tensor(obs).to(device) / 255.0 - 0.5
+            obs_th = torch.Tensor(obs).to(device, memory_format=torch.channels_last) / 255.0 - 0.5
             action, prev_data = dreamer.sample_action(obs_th, prev_data, mode="train")
 
         # TRY NOT TO MODIFY: execute the game and log data.
